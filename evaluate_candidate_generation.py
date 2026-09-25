@@ -34,9 +34,9 @@ def load_and_filter(filepath, required_set, noise_count):
         kept.append(req_df)
         
         noise_df = chunk[~chunk['entity_id'].isin(required_set)]
-        if noise_added < noise_count:
+        if noise_added < noise_count and len(noise_df):
             take = min(noise_count - noise_added, len(noise_df))
-            kept.append(noise_df.head(take))
+            kept.append(noise_df.sample(n=take, random_state=42 + noise_added))
             noise_added += take
             
     return pd.concat(kept).drop_duplicates(subset=['entity_id'])
@@ -132,7 +132,7 @@ def has_non_latin(text):
 
 metrics = {
     'total': 0, 'recovered': 0,
-    'recovered_at_5': 0, 'recovered_at_10': 0, 'recovered_at_20': 0, 'recovered_at_50': 0,
+    'recovered_route_top5': 0, 'recovered_route_top10': 0, 'recovered_route_top20': 0, 'recovered_union': 0,
     'cross_script_total': 0, 'cross_script_recovered': 0,
     'missing_addr_total': 0, 'missing_addr_recovered': 0,
     'india_total': 0, 'india_recovered': 0,
@@ -203,10 +203,10 @@ for idx, s1_id in enumerate(s1_eval_ids):
             if is_india: metrics['india_recovered'] += 1
             if is_us: metrics['us_recovered'] += 1
             
-            if best_pos < 5: metrics['recovered_at_5'] += 1
-            if best_pos < 10: metrics['recovered_at_10'] += 1
-            if best_pos < 20: metrics['recovered_at_20'] += 1
-            if best_pos < 50: metrics['recovered_at_50'] += 1
+            metrics['recovered_union'] += 1
+            if best_pos < 5: metrics['recovered_route_top5'] += 1
+            if best_pos < 10: metrics['recovered_route_top10'] += 1
+            if best_pos < 20: metrics['recovered_route_top20'] += 1
             
             hits = []
             if pos_A < 999: hits.append('Route A (Raw Name Char-TFIDF)')
@@ -228,10 +228,11 @@ for idx, s1_id in enumerate(s1_eval_ids):
 
 print("\n=== RECALL EVALUATION RESULTS ===")
 print(f"Total True Matches Evaluated: {metrics['total']}")
-print(f"Overall Recall@50: {metrics['recovered'] / metrics['total'] * 100:.2f}%")
-print(f"Recall@20: {metrics['recovered_at_20'] / metrics['total'] * 100:.2f}%")
-print(f"Recall@10: {metrics['recovered_at_10'] / metrics['total'] * 100:.2f}%")
-print(f"Recall@5: {metrics['recovered_at_5'] / metrics['total'] * 100:.2f}%")
+print(f"Union Candidate Recall (top-50 per retrieval route before union): {metrics['recovered_union'] / metrics['total'] * 100:.2f}%")
+print(f"Recovered within top-20 of at least one route: {metrics['recovered_route_top20'] / metrics['total'] * 100:.2f}%")
+print(f"Recovered within top-10 of at least one route: {metrics['recovered_route_top10'] / metrics['total'] * 100:.2f}%")
+print(f"Recovered within top-5 of at least one route: {metrics['recovered_route_top5'] / metrics['total'] * 100:.2f}%")
+print("Note: these route-top-k figures are NOT Recall@k of a globally ranked union.")
 
 if metrics['cross_script_total'] > 0:
     print(f"\nCross-script Recall: {metrics['cross_script_recovered'] / metrics['cross_script_total'] * 100:.2f}% ({metrics['cross_script_total']} total)")
