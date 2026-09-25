@@ -12,29 +12,7 @@ The task is to match each Source 1 business against zero, one, or many records f
 
 Source 1 is the deduplicated reference source. Sources 2 and 3 are the noisy candidate sources.
 
-## What is done
 
-- [x] Dataset structure and scale analysis
-- [x] Missing-value analysis
-- [x] Duplicate analysis
-- [x] Ground-truth match-count analysis
-- [x] Train/test country comparison
-- [x] France identified as an unseen test-country shift
-- [x] Positive-pair construction from ground truth
-- [x] Random-negative analysis
-- [x] Hard-name-negative analysis
-- [x] Hard-address-negative analysis
-- [x] Normalized exact-match analysis
-- [x] Sequence similarity analysis
-- [x] Word-level Jaccard analysis
-- [x] Character 3-gram similarity analysis
-- [x] Feature redundancy analysis
-- [x] Feature interaction analysis
-- [x] India vs US feature-behaviour comparison
-- [x] Difficult true-match inspection
-- [x] Deceptive hard-negative inspection
-- [x] Multilingual/transliteration failure-case identification
-- [x] Initial compact feature shortlist
 
 ## Dataset findings
 
