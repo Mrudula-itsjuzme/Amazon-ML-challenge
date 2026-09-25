@@ -1,0 +1,4 @@
+file,rows,empty_name,empty_address,empty_country,mean_name_len,median_name_len,p95_name_len,mean_address_len,median_address_len,p95_address_len
+train_source1.tsv,2206821,0,0,0,24.03440333402664,24.0,37.0,52.06621289175697,41.0,103.0
+train_source2.tsv,5034616,0,168967,0,25.103574930044317,25.0,40.0,46.22590858965212,37.0,96.0
+train_source3.tsv,5285603,0,175916,0,25.202143823514554,25.0,42.0,46.71443731207206,42.0,91.0
