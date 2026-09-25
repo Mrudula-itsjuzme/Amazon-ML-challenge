@@ -1,0 +1,53 @@
+Loading dataset...
+Building inverted index for hard negatives...
+Sampling pairs...
+Dataset: 2993 True Matches, 34298 Hard Negatives
+Extracting features...
+
+--- 1. NUMERIC TOKEN OVERLAP ---
+
+True Matches:
+Name Numeric Jaccard (mean): 0.01670564650851988
+Addr Numeric Jaccard (mean): 0.6951191669450941
+Addr Numeric Jaccard (90th percentile): 1.0
+
+Hard Negatives:
+Name Numeric Jaccard (mean): 0.0006122805994518631
+Addr Numeric Jaccard (mean): 0.007055334843398287
+Addr Numeric Jaccard (90th percentile): 0.0
+
+--- 2. SCRIPT-AWARE FEATURES ---
+True Matches:
+Cross-script: 462 / 2993
+Hard Negatives:
+Cross-script: 2574 / 34298
+
+--- 3. TRANSLITERATION FEASIBILITY (True Matches Only) ---
+Original Name Seq Ratio (Cross-script): 0.4404
+Transliterated Name Seq Ratio: 0.8041
+% where transliteration improved similarity by >0.1: 53.5%
+
+--- 4. NAME VS ADDRESS STABILITY (Percentiles) ---
+True Matches:
+Name Seq: [0.43888889 0.73076923 0.88235294 0.98305085 1.        ]
+Addr Seq: [0.51851852 0.71875    0.87179487 0.94915254 1.        ]
+
+Hard Negatives:
+Name Seq: [0.3        0.36619718 0.44       0.52631579 0.61111111]
+Addr Seq: [0.14562312 0.20289855 0.25925926 0.31578947 0.37288136]
+
+--- 5. WORST TRUE MATCHES vs HARDEST NEGATIVES ---
+
+WORST TRUE MATCHES:
+Sim: 0.22 | N1: Jay City Builders | N2: जय सिटी बिल्डर्स | A1: Delhi, Ohini, 311, Delhi, 3Rd Floor, Vikas Surya Shopping Mall Plot No.18, Sector-03, Mangalam Place, R | A2: 311, OHINI, Delhi
+Sim: 0.22 | N1: Shakti Investment Pvt Ltd | N2: शक्ति इन्वेस्टमेंट प्रा. लि. | A1: Office No. 501, B Wing, The Capital, G Block, Bandra Kurla Complex, Bandra Ea, St, Mumbai, Maharashtra | A2: महाराष्ट्र, ST, MUMBAI, OFFICE NO. 501
+Sim: 0.25 | N1: Universal Systems Private Limited | N2: ইউনিভার্সাল সিস্টেমস প্রাইভেট লিমিটেড | A1: 2, Chowdhury Para Lane, Belgharia, Kolkata, Kolkata, Howrah, West Bengal | A2: West Bengal, CALCUTTA, 2
+Sim: 0.27 | N1: Surya Management Pvt Ltd | N2: ಸೂರ್ಯ ಮ್ಯಾನೇಜ್‌ಮೆಂಟ್ ಪ್ರೈವೇಟ್ ಲಿಮಿಟೆಡ್ | A1: 212, Celstic Tower, Green Glen Layout Bellandur, Bangalore, Karnataka | A2: ಕರ್ನಾಟಕ, BANGALORE, BENGALURU, 212
+Sim: 0.28 | N1: Ace Constructions Limited | N2: ఏస్ కన్‌స్ట్రక్షన్స్ లిమిటెడ్ | A1: Apt 2, Plot No 58, Sy No 403, Ashwini Layout, Journalist Colony, Jubilee Hills, Khairatabad, Hyderabad, Telangana | A2: APT 2, KHAIRATABAD, తెలంగాణ
+
+HARDEST NEGATIVES:
+Sim: 1.78 | N1: Varasiddi & Co | N2: VARASIDDI & GROUP CO | A1: Plot No.72, Sevaram Nagar, Kanakpura Railway Station, Jaipur, Rajasthan | A2: PLOT NO.79, SEVARAM NAGAR, KANAKPURA RAILWAY STATION, JAIPUR, Rajasthan
+Sim: 1.58 | N1: Nucon & Co | N2: Nucon & Co Exports | A1: Dongargaon, Tal- Akole Dist- Ahmednagar, Ahmednagar, Maharashtra | A2: DOOR NO 85- DONGARGAON, TAL- AKOLE DIST- AHMEDNAGAR, AHMEDNAGAR, Maharashtra
+Sim: 1.58 | N1: Memosoft | N2: Memosoft Greater | A1: 214 Granville Drive, Newport News City, VA | A2: ##235 GRANVILLE DR, NEWPORT NEWS CITY, VA
+Sim: 1.53 | N1: Sivue | N2: Sivue | A1: 24 Fulton Avenue, Rochester, NY | A2: 520 WESTERN AVENUE, KNOXVILLE, TN
+Sim: 1.45 | N1: Chennai City Corporation Multi | N2: Chennai  City Corporation India Corp | A1: 3/2 Hanumar Koil Street, Chennai City Corporation, Chennai, Tamil Nadu | A2: SUITE-03, FIRST FLOOR, DHWARCO KKM, PLOT 21B, 5TH CIOSS STREET, CHENNAI CITY CORPORATION, Tamil Nadu
