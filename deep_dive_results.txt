@@ -1,0 +1,130 @@
+Loading data for deep dive...
+Building true matches dataset...
+Extracted 6107 true matches.
+
+=== 1. CROSS-SCRIPT PREVALENCE ===
+Cross-script true matches: 846 (13.85%)
+Average name similarity for cross-script matches: 0.489
+Average name similarity for same-script matches: 0.838
+
+=== 2. S2 vs S3 DIFFICULTY ===
+Matches found in S2 vs S3:
+source
+S3    3114
+S2    2993
+Name: count, dtype: int64
+
+Missing Addresses in True Matches by Source:
+source
+S2    3.98
+S3    4.21
+Name: addr_missing_target, dtype: float64 %
+
+Average Similarities by Source:
+        name_seq  addr_seq  name_jaccard
+source                                  
+S2         0.788     0.800         0.627
+S3         0.792     0.728         0.620
+
+=== 3. CORRUPTION TAXONOMY (True Matches) ===
+corruption_type
+8. General Fuzzy / Other                        51.87
+3. Exact Name, Diff Address                     22.19
+6. Transliteration / Cross-Script                8.40
+4. Diff Name, Exact Address                      6.91
+5. Word Reorder / Exact Token Match              6.11
+7. Missing Address                               2.87
+2. Exact Match (Normalized/Punctuation Only)     1.65
+Name: proportion, dtype: float64 %
+
+=== 4. WORST TRUE MATCHES (Bottom 1%) ===
+
+ID: S1-967491129 vs S3-609445299 (Combined Sim: 0.184)
+Name 1 : Galaxy Global Private Limited
+Name 2 : गैलेक्सी ग्लोबल प्राइवेट लिमिटेड
+Addr 1 : Rajasthan, Near Sahitya Shiksha Niketan, Gurjar Ghati, Amer Road, Jaipur, Plot No. 29, Jaipur
+Addr 2 : ##29, Jaipur, RJ
+
+ID: S1-657842839 vs S3-203278100 (Combined Sim: 0.190)
+Name 1 : Seven Producer Pvt Ltd
+Name 2 : सेवन प्रोड्यूसर प्रा. लि.
+Addr 1 : 158, Maji Upsarpanch, Hargude Vasti, Pune -Nagar Road, Sanaswadi, Pune, Maharashtra
+Addr 2 : 158, Pune, महाराष्ट्र
+
+ID: S1-316244307 vs S3-765167148 (Combined Sim: 0.214)
+Name 1 : Maa Technologies Private Limited
+Name 2 : ಮಾ ಟೆಕ್ನಾಲಜೀಸ್ ಪ್ರೈವೇಟ್ ಲಿಮಿಟೆಡ್
+Addr 1 : Karnataka, Bangalore, 50 Feet Road Muneshwara Block Giri Nagar Bengaluru, 5/9/1St Floor
+Addr 2 : 5/9/1St Floor, Bangalore, ಕರ್ನಾಟಕ
+
+ID: S1-120829625 vs S3-212500256 (Combined Sim: 0.221)
+Name 1 : Shiv Care Private Limited
+Name 2 : சிவ் கேர் பிரைவேட் லிமிடெட்
+Addr 1 : Krishna Complex, Plot No 34Poothapedu Main Road Nsc Bose Nagar, Porur, Chennai, Thiruvallur, Tamil Nadu
+Addr 2 : Thiruvallur, Chennai, TN, Krishna Complex
+
+ID: S1-88833811 vs S2-877703215 (Combined Sim: 0.222)
+Name 1 : Jay City Builders
+Name 2 : जय सिटी बिल्डर्स
+Addr 1 : Delhi, Ohini, 311, Delhi, 3Rd Floor, Vikas Surya Shopping Mall Plot No.18, Sector-03, Mangalam Place, R
+Addr 2 : 311, OHINI, Delhi
+
+ID: S1-21026849 vs S2-29841294 (Combined Sim: 0.224)
+Name 1 : Shakti Investment Pvt Ltd
+Name 2 : शक्ति इन्वेस्टमेंट प्रा. लि.
+Addr 1 : Office No. 501, B Wing, The Capital, G Block, Bandra Kurla Complex, Bandra Ea, St, Mumbai, Maharashtra
+Addr 2 : महाराष्ट्र, ST, MUMBAI, OFFICE NO. 501
+
+ID: S1-448603534 vs S3-87912647 (Combined Sim: 0.239)
+Name 1 : Good Developers Private Limited
+Name 2 : गुड डेवलपर्स प्राइवेट लिमिटेड
+Addr 1 : P-1, P-2 & P-11, P-12, Industrial Estate Pansal Chouraha, Pansal Road, Bhilwara, Rajasthan
+Addr 2 : Bhilwara, RJ, P-1
+
+ID: S1-867762863 vs S3-402440597 (Combined Sim: 0.248)
+Name 1 : Jay Infrastructure Private Limited
+Name 2 : ಜಯ್ ಇನ್‌ಫ್ರಾಸ್ಟ್ರಕ್ಚರ್ ಪ್ರೈವೇಟ್ ಲಿಮಿಟೆಡ್
+Addr 1 : #59, Flat #105, First Floor, Vandana Jasmine 8Th Cross, Venkatapura, Koramangala, 1St, Block, Bangalore, Karnataka
+Addr 2 : No 59, Bangalore, KA
+
+ID: S1-612327867 vs S2-403758935 (Combined Sim: 0.250)
+Name 1 : Universal Systems Private Limited
+Name 2 : ইউনিভার্সাল সিস্টেমস প্রাইভেট লিমিটেড
+Addr 1 : 2, Chowdhury Para Lane, Belgharia, Kolkata, Kolkata, Howrah, West Bengal
+Addr 2 : West Bengal, CALCUTTA, 2
+
+ID: S1-957128444 vs S2-969560468 (Combined Sim: 0.273)
+Name 1 : Surya Management Pvt Ltd
+Name 2 : ಸೂರ್ಯ ಮ್ಯಾನೇಜ್‌ಮೆಂಟ್ ಪ್ರೈವೇಟ್ ಲಿಮಿಟೆಡ್
+Addr 1 : 212, Celstic Tower, Green Glen Layout Bellandur, Bangalore, Karnataka
+Addr 2 : ಕರ್ನಾಟಕ, BANGALORE, BENGALURU, 212
+
+ID: S1-717669546 vs S2-794751699 (Combined Sim: 0.279)
+Name 1 : Ace Constructions Limited
+Name 2 : ఏస్ కన్‌స్ట్రక్షన్స్ లిమిటెడ్
+Addr 1 : Apt 2, Plot No 58, Sy No 403, Ashwini Layout, Journalist Colony, Jubilee Hills, Khairatabad, Hyderabad, Telangana
+Addr 2 : APT 2, KHAIRATABAD, తెలంగాణ
+
+ID: S1-481114281 vs S3-298846595 (Combined Sim: 0.289)
+Name 1 : Shiv Power Private Limited
+Name 2 : शिव पावर प्राइवेट लिमिटेड
+Addr 1 : 1103, 11Th Floor, Plot-453, Lodha Supremus Senapati Bapat Marg, Lower Parel(W), Deli, Sle Road, Mumbai, Mumbai City, Maharashtra
+Addr 2 : Hn B3/292 1103, Karjath, Mumbai City, MH
+
+ID: S1-441049541 vs S2-580237969 (Combined Sim: 0.291)
+Name 1 : Golden Vijay Enterprises Private Limited
+Name 2 : गोल्डन विजय एंटरप्राइजेज प्राइवेट लिमिटेड
+Addr 1 : East Delhi, First Floor, Khasra No-256/4 Main Road, Chander Vihar, Mandawali, A-213, Delhi
+Addr 2 : A-00213, DELHI, EAST DELHI, Delhi
+
+ID: S1-658908649 vs S2-495870867 (Combined Sim: 0.314)
+Name 1 : Perfect Projects Private Limited
+Name 2 : परफेक्ट प्रोजेक्ट्स प्राइवेट लिमिटेड
+Addr 1 : 1204, 6G, India Bulls Greens Kon Village, Rasaini Road, Panvel, Raigarh, Maharashtra
+Addr 2 : 1204, Maharashtra, RAIGARH
+
+ID: S1-776994594 vs S2-883418707 (Combined Sim: 0.315)
+Name 1 : Dream Management Private Limited
+Name 2 : డ్రీమ్ మేనేజ్‌మెంట్ ప్రైవేట్ లిమిటెడ్
+Addr 1 : 3-105/3/A/13, East Hanuman Nagar, Boduppal, Hyderabad, Telangana
+Addr 2 : HYDERABAD, 3-105/3/A/13, Andhra Pradesh
