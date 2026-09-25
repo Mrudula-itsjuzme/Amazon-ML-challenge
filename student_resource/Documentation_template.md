@@ -300,8 +300,7 @@ Amazon-ML-challenge/
 └── student_resource/
     ├── README.md
     ├── Documentation_template.md
-    └── utils/
-        └── validate_submission.py
+    ├── eda_and_feature_analysis.py
 ```
 
 The analysis scripts used locally should be added to the repository once their structure is cleaned and finalized.

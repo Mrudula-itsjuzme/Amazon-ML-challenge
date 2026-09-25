@@ -128,19 +128,6 @@ empty when blocking found no candidates, S2-/S3- IDs only, no duplicates within 
 Your final matches should be a **subset** of your candidates (a matched ID that never
 appeared as a candidate signals a pipeline bug — the validator warns about it).
 
-**Validate before submitting:** a helper script `utils/validate_submission.py` (stdlib
-only, no dependencies) checks both files against every rule above so you can catch a
-rejection locally instead of spending a submission on it. Run it from this
-`student_resource/` directory:
-
-```bash
-python3 utils/validate_submission.py \
-    --matching output/matching_results.tsv \
-    --candidate output/candidate_pairs.tsv \
-    --test-dir dataset/test
-```
-
-It prints `PASS` (exit 0) when the files are safe to submit, or a numbered list of issues
 to fix (exit 1). It only reads your output files and the test source files; it does not
 compute your score.
 
