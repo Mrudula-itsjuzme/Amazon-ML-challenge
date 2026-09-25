@@ -297,10 +297,10 @@ https://github.com/Mrudula-itsjuzme/Amazon-ML-challenge
 ```text
 Amazon-ML-challenge/
 ├── .gitignore
-└── student_resource/
-    ├── README.md
-    ├── Documentation_template.md
-    ├── eda_and_feature_analysis.py
+├── CHALLENGE_README.md
+├── Documentation_template.md
+├── README.md
+└── eda_and_feature_analysis.py
 ```
 
 The analysis scripts used locally should be added to the repository once their structure is cleaned and finalized.
