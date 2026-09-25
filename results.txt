@@ -1,0 +1,27 @@
+Loading data...
+Building inverted index for hard negatives...
+Generating positive and negative pairs...
+Generated 2001 pairs. Extracting features...
+
+=== OVERALL CORRELATION ===
+label             NaN
+same_country      NaN
+norm_name_exact   NaN
+norm_addr_exact   NaN
+name_seq_ratio    NaN
+addr_seq_ratio    NaN
+name_jaccard      NaN
+addr_jaccard      NaN
+name_3gram        NaN
+addr_3gram        NaN
+addr_missing_A    NaN
+addr_missing_B    NaN
+Name: label, dtype: float64
+
+=== FEATURE MEANS BY PAIR TYPE ===
+                 name_seq_ratio  name_jaccard  ...  addr_seq_ratio  addr_jaccard
+label type                                     ...                              
+0     hard_name           0.514         0.220  ...           0.261         0.015
+      random              0.249         0.013  ...           0.240         0.009
+
+[2 rows x 5 columns]
