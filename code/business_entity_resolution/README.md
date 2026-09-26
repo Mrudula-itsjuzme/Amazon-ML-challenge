@@ -132,6 +132,65 @@ TSVs to `MyDrive/ml_challenge/` as shown in the notebook. The bundle contains
 the code and existing forward retrieval artifacts, but no dataset or labels.
 The notebook saves full retrieval outputs to `MyDrive/ml_challenge/reverse_ann_result`.
 
+The equivalent local ANN run completed against all 10,320,219 targets on the
+`mru` checkout. It used 64 projection components, 1,024 IVF lists, `nprobe=8`,
+and top ten reverse S1 neighbors. Target-scan checkpoints made the 76-minute
+run restartable; peak resident memory was about 2.4 GiB. Its manifest and
+development-only report are in `research_runs/reverse_ann_local_full/`.
+For a local restart, repeat the same command; the scan manifest skips finished
+target chunks:
+
+```bash
+python code/business_entity_resolution/01_pipeline.py --split train \
+  --data-dir student_resource/dataset \
+  --reverse-ann-from research_runs/ber_fullpool_1000_offset300_aug1 \
+  --output-dir research_runs/reverse_ann_local_full \
+  --ann-cache-dir research_runs/reverse_ann_local_cache \
+  --ann-checkpoint-dir research_runs/reverse_ann_local_checkpoints \
+  --ann-checkpoint-interval 100000 --reverse-source-chunk 20000 \
+  --target-chunk 10000 --reverse-hash-features 131072 \
+  --ann-components 64 --ann-nlist 1024 --ann-nprobe 8 \
+  --ann-threads 4 --cap 150
+```
+
+| Development blocker recall, 2,828 true links | K40 | K60 | K80 | K100 | K150 | Raw union |
+|---|---:|---:|---:|---:|---:|---:|
+| Forward routes | 0.8893 | 0.9558 | 0.9678 | 0.9714 | 0.9760 | 0.9802 |
+| Forward plus reverse ANN | 0.8907 | 0.9562 | 0.9653 | 0.9699 | 0.9752 | 0.9802 |
+
+The ANN route added **zero** of the 56 true links absent from the raw forward
+union on the 800 development S1 entities. It displaced four true links from
+the K100 selection. It is therefore not promoted to the learned matcher.
+The previously opened 200-S1 confirmation partition was not used for this
+route decision.
+
+On the full-pool ANN K150 candidates, a grouped three-fold development
+comparison gave LightGBM macro F0.5 0.9080 and pair precision 0.9521, and
+CatBoost 0.8939 and 0.9637. Both missed the precision target without a
+constraint. With the established development-only 0.97 precision-constrained
+threshold rule, LightGBM reached mean macro F0.5 0.9026 (folds 0.9012,
+0.9178, 0.8887) and mean pair precision 0.9783 (minimum fold 0.9761).
+The prior K100 missing-address model scored mean F0.5 0.8978 (folds 0.8973,
+0.9202, 0.8759); the ANN K150 model lost on the second fold and lowered mean
+missing-address F0.5 from 0.8457 to 0.8347. The wider ANN model is not
+selected under the all-fold stability criterion. These are development
+comparisons, not a new locked-confirmation result.
+
+A paired K100 ablation kept the original forward candidate IDs fixed and
+added only reverse ANN rank/score features. LightGBM mean F0.5 rose from
+0.8978 to 0.9018 with precision 0.9787, but the first grouped fold fell
+from 0.8973 to 0.8936 and mean missing-address F0.5 fell from 0.8457 to
+0.8266. This feature-only variant also fails the stability criterion. The
+learned matcher therefore retains the seven established routes; reverse ANN
+stays as a research-only artifact.
+
+The retained K100 LightGBM's development-fit importance file is
+`research_runs/ber_fullpool_1000_offset300_aug1/best_k100_development_feature_importance.json`.
+Its leading features are name length ratio, numeric score relative to the
+source's best candidate, rare-token route score, address character similarity,
+address token overlap, and number overlap. Importance is descriptive of that
+development fit, not an independent feature-selection result.
+
 ## Submission path and limits
 
 The earlier reduced-target pilot excluded most true links and its model scores must not be used as estimates of full-pool quality. The previous mru pipeline also seeded its candidate pool with ground-truth targets and ASCII-stripped native name text; these issues are avoided in this study.

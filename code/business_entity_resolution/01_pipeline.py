@@ -387,7 +387,7 @@ def reverse_retrieve(source, old_target, old_audit, folder, split,
                 row = {"source1_entity_id": source.entity_id.iat[i],
                        "candidate_entity_id": tid,
                        "route_count": len(items[tid])}
-                for route in (*ROUTES, "reverse"):
+                for route in ROUTES:
                     rank, score = items[tid].get(route, (0, 0.0))
                     row[f"{route}_rank"], row[f"{route}_score"] = rank, score
                 rows.append(row)
@@ -399,7 +399,8 @@ def reverse_ann_retrieve(source, old_target, old_audit, folder, split, cache_dir
                          source_chunk=50000, target_chunk=20000, reverse_top=10,
                          cap=100, hash_features=2**18, components=128,
                          nlist=2048, nprobe=16, threads=8,
-                         profile_targets=None):
+                         profile_targets=None, checkpoint_dir=None,
+                         checkpoint_interval=100000):
     """Approximate full-S1 reverse search; labels never enter the index or search."""
     import sys
     local_deps = ROOT / "research_runs/python_deps"
@@ -506,9 +507,68 @@ def reverse_ann_retrieve(source, old_target, old_audit, folder, split, cache_dir
                     rank, getattr(row, f"{route}_score"))
     old_ids = set(old_target.entity_id)
     extra_targets, target_population = [], 0
+    scan_manifest = None
+    pending_pairs, pending_targets = [], []
+    if checkpoint_dir is not None:
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        scan_manifest = checkpoint_dir / "scan_manifest.json"
+        target_stats = [[p.name, p.stat().st_size, p.stat().st_mtime_ns]
+                        for p in (folder / f"{split}_source2.tsv",
+                                  folder / f"{split}_source3.tsv")]
+        scan_config = {"source_ids": source.entity_id.tolist(),
+                       "old_audit_rows": len(old_audit),
+                       "old_target_rows": len(old_target),
+                       "target_stats": target_stats,
+                       "reverse_top": reverse_top, "hash_features": hash_features,
+                       "components": components, "nlist": nlist,
+                       "nprobe": nprobe, "target_chunk": target_chunk,
+                       "checkpoint_interval": checkpoint_interval}
+        if scan_manifest.exists():
+            saved = json.loads(scan_manifest.read_text())
+            if saved["config"] != scan_config:
+                raise ValueError("ANN scan checkpoint settings or input files changed")
+            target_population = saved["scanned_targets"]
+            for shard in saved["shards"]:
+                for row in pd.read_parquet(checkpoint_dir / shard["pairs"]).itertuples(index=False):
+                    evidence[source_index[row.source1_entity_id]][row.candidate_entity_id]["reverse"] = (
+                        row.reverse_rank, row.reverse_score)
+                extra_targets.append(pd.read_parquet(checkpoint_dir / shard["targets"]))
+            print(f"Resumed ANN scan at {target_population:,} targets", flush=True)
+        else:
+            saved = {"config": scan_config, "scanned_targets": 0, "shards": []}
+        last_checkpoint = target_population
+
+    def save_checkpoint():
+        nonlocal last_checkpoint
+        if scan_manifest is None or target_population == last_checkpoint:
+            return
+        stem = f"chunk_{last_checkpoint:09d}_{target_population:09d}"
+        pair_file, target_file = stem + "_pairs.parquet", stem + "_targets.parquet"
+        pd.DataFrame(pending_pairs, columns=["source1_entity_id", "candidate_entity_id",
+                                                 "reverse_rank", "reverse_score"]).to_parquet(
+            checkpoint_dir / pair_file, index=False)
+        if pending_targets:
+            pd.concat(pending_targets, ignore_index=True).to_parquet(
+                checkpoint_dir / target_file, index=False)
+        else:
+            old_target.iloc[:0].to_parquet(checkpoint_dir / target_file, index=False)
+        saved["shards"].append({"pairs": pair_file, "targets": target_file})
+        saved["scanned_targets"] = target_population
+        temporary = scan_manifest.with_suffix(".tmp")
+        temporary.write_text(json.dumps(saved))
+        temporary.replace(scan_manifest)
+        pending_pairs.clear()
+        pending_targets.clear()
+        last_checkpoint = target_population
+        print(f"  ANN checkpoint: {target_population:,} targets", flush=True)
+
     started = time.monotonic()
     print("ANN pass 4: stream all targets", flush=True)
-    for _, raw in target_chunks(folder, split, target_chunk):
+    for offset, raw in target_chunks(folder, split, target_chunk):
+        if offset + len(raw) <= target_population:
+            continue
+        if offset < target_population:
+            raw = raw.iloc[target_population - offset:]
         if profile_targets is not None:
             raw = raw.iloc[:max(0, profile_targets - target_population)]
             if raw.empty:
@@ -526,17 +586,26 @@ def reverse_ann_retrieve(source, old_target, old_audit, folder, split, cache_dir
             target_id = raw.entity_id.iat[row]
             i = int(local_s1[row, rank])
             evidence[i][target_id]["reverse"] = (int(rank + 1), float(scores[row, rank]))
+            if scan_manifest is not None:
+                pending_pairs.append((source.entity_id.iat[i], target_id,
+                                      int(rank + 1), float(scores[row, rank])))
             if target_id not in old_ids:
                 extra.add(int(row))
         if extra:
-            extra_targets.append(prep(raw.iloc[sorted(extra)].copy()))
+            block = prep(raw.iloc[sorted(extra)].copy())
+            extra_targets.append(block)
+            if scan_manifest is not None:
+                pending_targets.append(block)
         target_population += len(raw)
+        if scan_manifest is not None and target_population - last_checkpoint >= checkpoint_interval:
+            save_checkpoint()
         if target_population % 1000000 < target_chunk:
             elapsed = time.monotonic() - started
             print(f"  ANN targets: {target_population:,}; reverse cohort hits: "
                   f"{sum(len(items) for items in evidence):,}; seconds: {elapsed:.1f}", flush=True)
         if profile_targets is not None and target_population >= profile_targets:
             break
+    save_checkpoint()
     target = pd.concat([old_target, *extra_targets], ignore_index=True).drop_duplicates("entity_id")
     def make_frame(limit):
         rows = []
@@ -979,6 +1048,9 @@ def main():
     p.add_argument("--ann-threads", type=int, default=8)
     p.add_argument("--ann-profile-targets", type=int,
                    help="Bounded ANN speed profile; never a full-pool recall result")
+    p.add_argument("--ann-checkpoint-dir", type=Path,
+                   help="Persist target-scan chunks so an interrupted run can resume")
+    p.add_argument("--ann-checkpoint-interval", type=int, default=100000)
     p.add_argument("--reverse-top", type=int, default=10)
     p.add_argument("--reverse-hash-features", type=int, default=2**18)
     p.add_argument("--reverse-query-top-per-field", type=int, default=6)
@@ -1020,7 +1092,9 @@ def main():
             hash_features=args.reverse_hash_features,
             components=args.ann_components, nlist=args.ann_nlist,
             nprobe=args.ann_nprobe, threads=args.ann_threads,
-            profile_targets=args.ann_profile_targets)
+            profile_targets=args.ann_profile_targets,
+            checkpoint_dir=args.ann_checkpoint_dir,
+            checkpoint_interval=args.ann_checkpoint_interval)
     elif args.reverse_from:
         if args.augment_from or args.stream_target or args.sample_s1 or args.target_limit:
             p.error("--reverse-from excludes other retrieval modes and target limits")

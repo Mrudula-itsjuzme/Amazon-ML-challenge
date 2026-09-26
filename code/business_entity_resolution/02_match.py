@@ -14,7 +14,7 @@ from sklearn.model_selection import GroupShuffleSplit
 
 ROOT = Path(__file__).resolve().parents[2]
 ROUTES = ("native_char", "native_word", "address_char", "numeric", "rare_token",
-          "translit_char", "core_char", "reverse")
+          "translit_char", "core_char")
 
 
 @lru_cache(maxsize=300000)
