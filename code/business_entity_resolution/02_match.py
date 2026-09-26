@@ -4,6 +4,7 @@ from collections import Counter
 from functools import lru_cache
 import math
 from pathlib import Path
+import json
 
 import joblib
 import numpy as np
@@ -134,6 +135,50 @@ def build_features(pairs, source, target):
             lambda item: item.nlargest(2).iloc[-1] if len(item) > 1 else 0.0)
         frame[column + "_best_margin"] = highest - top_two
     return frame
+
+
+def global_target_idf_features(pairs, source, target, df_dir):
+    """Exact label-free token DF features from the complete S2/S3 target pool."""
+    df_dir = Path(df_dir)
+    manifest = json.loads((df_dir / "manifest.json").read_text())
+    population = manifest["target_pool_size"]
+    if population != 10_320_219 or manifest["labels_used"] is not False:
+        raise ValueError("Global token DF must cover the unlabeled full target pool")
+    name_df = dict(pd.read_parquet(df_dir / "name_df.parquet").itertuples(index=False, name=None))
+    address_df = dict(pd.read_parquet(df_dir / "address_df.parquet").itertuples(index=False, name=None))
+    source_map = {row.entity_id: row for row in source.itertuples(index=False)}
+    target_map = {row.entity_id: row for row in target.itertuples(index=False)}
+
+    def idf(token, df):
+        return math.log((population + 1) / (df.get(token, 0) + 1)) + 1
+
+    def weighted_jaccard(left, right, df):
+        union = left | right
+        if not union:
+            return 0.0
+        return sum(idf(token, df) for token in left & right) / sum(
+            idf(token, df) for token in union)
+
+    def largest_idf(values, df):
+        return max((idf(token, df) for token in values), default=0.0)
+
+    rows = []
+    for pair in pairs.itertuples(index=False):
+        a = source_map[pair.source1_entity_id]
+        b = target_map[pair.candidate_entity_id]
+        an, bn = tokens(a.name_native), tokens(b.name_native)
+        aa, ba = tokens(a.address_native), tokens(b.address_native)
+        rows.append({
+            "global_name_idf_jaccard": weighted_jaccard(an, bn, name_df),
+            "global_address_idf_jaccard": weighted_jaccard(aa, ba, address_df),
+            "shared_name_max_idf": largest_idf(an & bn, name_df),
+            "shared_address_max_idf": largest_idf(aa & ba, address_df),
+            "source_only_name_max_idf": largest_idf(an - bn, name_df),
+            "target_only_name_max_idf": largest_idf(bn - an, name_df),
+            "source_only_address_max_idf": largest_idf(aa - ba, address_df),
+            "target_only_address_max_idf": largest_idf(ba - aa, address_df),
+        })
+    return pd.DataFrame(rows, dtype=np.float32)
 
 
 def parse_truth(path, ids=None):

@@ -1,5 +1,11 @@
 # Business entity resolution
 
+The latest frozen full-pool IDF matcher audit, grouped ablations, blocker miss
+taxonomy, and one-time 500-S1 confirmation are in
+[`IDF_MATCHER_AUDIT.md`](IDF_MATCHER_AUDIT.md). The selected K100 LightGBM
+scored **0.9393 macro F0.5** and **0.9762 pair precision** on that untouched
+cohort. The 0.95 target was not reached.
+
 `01_pipeline.py` preprocesses Unicode names and addresses and retrieves bounded candidates without reading labels. `02_match.py` builds pair features and runs LightGBM inference. `03_validate.py` performs grouped model comparison and locked confirmation. The system permits zero, one, or many matches per S1 and never filters candidates by country. Dependencies are pinned in `requirements.txt` (Python 3.10).
 
 ## Reproduce the full-pool matcher study

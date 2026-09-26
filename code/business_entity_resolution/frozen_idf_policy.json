@@ -1,0 +1,33 @@
+{
+  "selected_policy": "global_idf_fine_k100",
+  "development_dir": "research_runs/ber_fullpool_1000_offset300_aug1",
+  "confirmation_base_dir": "research_runs/ber_fullpool_500_offset1800",
+  "confirmation_dir": "research_runs/ber_fullpool_500_offset1800_aug1",
+  "previous_external_dir": "research_runs/ber_fullpool_500_offset1300_aug1",
+  "global_df_dir": "research_runs/global_target_token_df",
+  "data_dir": "student_resource/dataset",
+  "routes": ["native_char", "native_word", "address_char", "numeric", "rare_token", "translit_char", "core_char"],
+  "pipeline_sha256": "2eb619fd945dc6b1dc3155a846e1a328a718400159d66fe7f59d81bfe169845e",
+  "matcher_sha256": "b8a1c19cfe6e7c5dedb6e31853f4fd99e864bd1fb80405b2196909a4c5004141",
+  "validator_sha256": "d5cf4027b69ea6ac89a440229076ec809ebb663982f5bb053b12cae8afef7c2c",
+  "confirmation_script_sha256": "995bb7e4418710fb87b36cd15b4cb296159fe0ede8126daf3123f30f4f7cc179",
+  "name_df_sha256": "91c62827a8de3bd3ff18d0c213e7f18d789f2ed397715b02fc8a958e4a70a3aa",
+  "address_df_sha256": "18dcb4f07cb28dae300f5fc4f8a6ce7318a38021a883fcf58d7790799a9281b4",
+  "policies": {
+    "earlier_k60": {
+      "seed": 31415,
+      "precision_floor": null,
+      "threshold_grid": [0.5, 0.7, 0.85, 0.9, 0.95, 0.975, 0.99, 0.995, 0.999]
+    },
+    "retained_k100": {
+      "seed": 63000,
+      "precision_floor": 0.97,
+      "threshold_grid": [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.975, 0.99, 0.995, 0.999]
+    },
+    "global_idf_fine_k100": {
+      "seed": 63000,
+      "precision_floor": 0.97,
+      "threshold_grid": [0.5, 0.525, 0.55, 0.5750000000000001, 0.6000000000000001, 0.6250000000000001, 0.6500000000000001, 0.6750000000000002, 0.7000000000000002, 0.7250000000000002, 0.7500000000000002, 0.7750000000000002, 0.8000000000000003, 0.8250000000000003, 0.8500000000000003, 0.8750000000000003, 0.9000000000000004, 0.9250000000000004, 0.9500000000000004, 0.975, 0.99, 0.995, 0.999]
+    }
+  }
+}
