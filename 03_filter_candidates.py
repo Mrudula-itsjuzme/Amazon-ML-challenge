@@ -13,6 +13,9 @@ FILTERED_DIR = ROOT / "filtered"
 
 FILTERED_DIR.mkdir(exist_ok=True)
 
+# Process the 300M candidate pairs in manageable chunks.
+CHUNK_SIZE = 500_000
+
 
 def similarity(a, b):
 
@@ -147,6 +150,11 @@ def filter_candidates(split):
     print(f"FILTERING: {split.upper()}")
     print(f"{'=' * 60}")
 
+    # ---------------------------------------------------------
+    # Load source records.
+    # These are small enough compared with the 300M candidates.
+    # ---------------------------------------------------------
+
     s1 = pd.read_csv(
         PROCESSED_DIR
         / f"{split}_S1_processed.tsv",
@@ -171,18 +179,14 @@ def filter_candidates(split):
         keep_default_na=False,
     )
 
-    candidates = pd.read_csv(
-        CANDIDATE_DIR
-        / f"{split}_candidate_pairs.tsv",
-        sep="\t",
-        dtype=str,
-        keep_default_na=False,
-    )
-
     targets = pd.concat(
         [s2, s3],
         ignore_index=True,
     )
+
+    # ---------------------------------------------------------
+    # Build lookups once.
+    # ---------------------------------------------------------
 
     s1_lookup = (
         s1
@@ -196,58 +200,9 @@ def filter_candidates(split):
         .to_dict("index")
     )
 
-    print(
-        f"Input candidates: "
-        f"{len(candidates):,}"
-    )
-
-    output_rows = []
-
-    for i, row in candidates.iterrows():
-
-        s1_id = row[
-            "s1_entity_id"
-        ]
-
-        target_id = row[
-            "candidate_entity_id"
-        ]
-
-        a = s1_lookup.get(s1_id)
-        b = target_lookup.get(target_id)
-
-        if a is None or b is None:
-            continue
-
-        features = compute_features(
-            a,
-            b,
-        )
-
-        if keep_candidate(features):
-
-            output_rows.append(
-                {
-                    "s1_entity_id": s1_id,
-                    "candidate_entity_id": target_id,
-                    "retrieval_channels":
-                        row[
-                            "retrieval_channels"
-                        ],
-                    **features,
-                }
-            )
-
-        if (i + 1) % 100_000 == 0:
-
-            print(
-                f"Processed "
-                f"{i + 1:,}/"
-                f"{len(candidates):,}"
-            )
-
-    result = pd.DataFrame(
-        output_rows
+    candidate_file = (
+        CANDIDATE_DIR
+        / f"{split}_candidate_pairs.tsv"
     )
 
     output = (
@@ -255,24 +210,154 @@ def filter_candidates(split):
         / f"{split}_final_candidate_pairs.tsv"
     )
 
-    result.to_csv(
-        output,
-        sep="\t",
-        index=False,
+    print(
+        f"S1 rows: {len(s1):,}"
     )
 
-    print("\nDone.")
+    print(
+        f"Target rows: {len(targets):,}"
+    )
+
+    print(
+        f"Candidate file: {candidate_file}"
+    )
+
+    # ---------------------------------------------------------
+    # IMPORTANT:
+    # Do NOT load the entire candidate file.
+    #
+    # We stream it in chunks.
+    # ---------------------------------------------------------
+
+    print(
+        f"Chunk size: {CHUNK_SIZE:,}"
+    )
+
+    # Remove an existing output so rerunning the script
+    # does not accidentally append to an old result.
+    if output.exists():
+        output.unlink()
+
+    total_processed = 0
+    total_kept = 0
+    total_missing_lookup = 0
+    chunk_number = 0
+
+    first_write = True
+
+    candidate_reader = pd.read_csv(
+        candidate_file,
+        sep="\t",
+        dtype=str,
+        keep_default_na=False,
+        chunksize=CHUNK_SIZE,
+    )
+
+    for candidates in candidate_reader:
+
+        chunk_number += 1
+
+        output_rows = []
+
+        for row in candidates.itertuples(
+            index=False
+        ):
+
+            s1_id = row.s1_entity_id
+            target_id = row.candidate_entity_id
+
+            a = s1_lookup.get(s1_id)
+            b = target_lookup.get(target_id)
+
+            if a is None or b is None:
+                total_missing_lookup += 1
+                continue
+
+            features = compute_features(
+                a,
+                b,
+            )
+
+            if keep_candidate(features):
+
+                output_rows.append(
+                    {
+                        "s1_entity_id": s1_id,
+                        "candidate_entity_id": target_id,
+                        "retrieval_channels":
+                            row.retrieval_channels,
+                        **features,
+                    }
+                )
+
+        # -----------------------------------------------------
+        # Write THIS chunk immediately.
+        #
+        # We do not keep all surviving candidates in memory.
+        # -----------------------------------------------------
+
+        if output_rows:
+
+            result_chunk = pd.DataFrame(
+                output_rows
+            )
+
+            result_chunk.to_csv(
+                output,
+                sep="\t",
+                index=False,
+                mode="w" if first_write else "a",
+                header=first_write,
+            )
+
+            first_write = False
+
+            total_kept += len(
+                result_chunk
+            )
+
+        total_processed += len(candidates)
+
+        retention_so_far = (
+            total_kept / total_processed
+            if total_processed
+            else 0.0
+        )
+
+        print(
+            f"Chunk {chunk_number:,} | "
+            f"Processed "
+            f"{total_processed:,} | "
+            f"Kept "
+            f"{total_kept:,} | "
+            f"Retention "
+            f"{retention_so_far:.2%}"
+        )
+
+    print("\n" + "=" * 60)
+    print("FILTERING COMPLETE")
+    print("=" * 60)
+
+    print(
+        f"Input candidates: "
+        f"{total_processed:,}"
+    )
 
     print(
         f"Final candidates: "
-        f"{len(result):,}"
+        f"{total_kept:,}"
     )
 
-    if len(candidates):
+    if total_processed:
         print(
             f"Retention: "
-            f"{len(result) / len(candidates):.2%}"
+            f"{total_kept / total_processed:.2%}"
         )
+
+    print(
+        f"Missing lookup pairs: "
+        f"{total_missing_lookup:,}"
+    )
 
     print(
         f"Saved: {output}"

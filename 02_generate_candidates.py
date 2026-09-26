@@ -12,6 +12,10 @@ CANDIDATE_DIR.mkdir(exist_ok=True)
 
 MAX_POSTINGS = 500
 
+# Process S1 in batches so candidate_set does not grow
+# to hundreds of millions of Python objects.
+BATCH_SIZE = 10_000
+
 
 def build_exact_index(df, column):
     index = defaultdict(list)
@@ -142,13 +146,28 @@ def generate_candidates(split):
         targets
     )
 
+    output = (
+        CANDIDATE_DIR
+        / f"{split}_candidate_pairs.tsv"
+    )
+
+    # Start a fresh output file for this run.
+    first_batch = True
+
+    total_candidates = 0
+
+    print("\nGenerating candidates...")
+
+    # itertuples() is substantially cheaper than iterrows()
+    # for large DataFrames.
+    rows = s1.itertuples(index=False)
+
     candidate_set = defaultdict(set)
+    batch_count = 0
 
-    print("Generating candidates...")
+    for i, row in enumerate(rows, start=1):
 
-    for i, row in s1.iterrows():
-
-        s1_id = row["entity_id"]
+        s1_id = row.entity_id
 
         # -----------------------------
         # 1. Exact normalized name
@@ -158,7 +177,7 @@ def generate_candidates(split):
             candidate_set,
             s1_id,
             name_index.get(
-                row["norm_name"],
+                row.norm_name,
                 [],
             ),
             "exact_name",
@@ -172,7 +191,7 @@ def generate_candidates(split):
             candidate_set,
             s1_id,
             translit_index.get(
-                row["translit_name"],
+                row.translit_name,
                 [],
             ),
             "translit_name",
@@ -186,7 +205,7 @@ def generate_candidates(split):
             candidate_set,
             s1_id,
             address_index.get(
-                row["norm_address"],
+                row.norm_address,
                 [],
             ),
             "exact_address",
@@ -199,7 +218,7 @@ def generate_candidates(split):
         token_candidates = set()
 
         for token in set(
-            row["norm_address"].split()
+            row.norm_address.split()
         ):
 
             if len(token) < 3:
@@ -227,7 +246,7 @@ def generate_candidates(split):
         number_candidates = set()
 
         for number in set(
-            row["address_numbers"].split()
+            row.address_numbers.split()
         ):
 
             if not number:
@@ -248,49 +267,120 @@ def generate_candidates(split):
             "address_number",
         )
 
-        if (i + 1) % 100_000 == 0:
+        # -----------------------------
+        # Write batch
+        # -----------------------------
+
+        if i % BATCH_SIZE == 0:
+
+            rows_to_write = []
+
+            for (
+                (candidate_s1_id, target_id),
+                channels,
+            ) in candidate_set.items():
+
+                rows_to_write.append(
+                    {
+                        "s1_entity_id": candidate_s1_id,
+                        "candidate_entity_id": target_id,
+                        "retrieval_channels": ",".join(
+                            sorted(channels)
+                        ),
+                    }
+                )
+
+            if rows_to_write:
+
+                result = pd.DataFrame(
+                    rows_to_write,
+                    columns=[
+                        "s1_entity_id",
+                        "candidate_entity_id",
+                        "retrieval_channels",
+                    ],
+                )
+
+                result.to_csv(
+                    output,
+                    sep="\t",
+                    index=False,
+                    mode="w" if first_batch else "a",
+                    header=first_batch,
+                )
+
+                first_batch = False
+
+                batch_candidates = len(result)
+                total_candidates += batch_candidates
+
+            else:
+                batch_candidates = 0
+
+            batch_count += 1
+
             print(
                 f"Processed "
-                f"{i + 1:,}/{len(s1):,} | "
-                f"Candidates: "
-                f"{len(candidate_set):,}"
+                f"{i:,}/{len(s1):,} | "
+                f"Batch candidates: "
+                f"{batch_candidates:,} | "
+                f"Total candidates: "
+                f"{total_candidates:,}"
             )
 
+            # CRITICAL:
+            # Drop the huge Python dictionary before
+            # processing the next batch.
+            candidate_set.clear()
+
     # -----------------------------
-    # Save
+    # Write final partial batch
     # -----------------------------
 
-    rows = []
+    if candidate_set:
 
-    for (s1_id, target_id), channels in candidate_set.items():
+        rows_to_write = []
 
-        rows.append(
-            {
-                "s1_entity_id": s1_id,
-                "candidate_entity_id": target_id,
-                "retrieval_channels": ",".join(
-                    sorted(channels)
-                ),
-            }
-        )
+        for (
+            (candidate_s1_id, target_id),
+            channels,
+        ) in candidate_set.items():
 
-    result = pd.DataFrame(rows)
+            rows_to_write.append(
+                {
+                    "s1_entity_id": candidate_s1_id,
+                    "candidate_entity_id": target_id,
+                    "retrieval_channels": ",".join(
+                        sorted(channels)
+                    ),
+                }
+            )
 
-    output = (
-        CANDIDATE_DIR
-        / f"{split}_candidate_pairs.tsv"
-    )
+        if rows_to_write:
 
-    result.to_csv(
-        output,
-        sep="\t",
-        index=False,
-    )
+            result = pd.DataFrame(
+                rows_to_write,
+                columns=[
+                    "s1_entity_id",
+                    "candidate_entity_id",
+                    "retrieval_channels",
+                ],
+            )
+
+            result.to_csv(
+                output,
+                sep="\t",
+                index=False,
+                mode="w" if first_batch else "a",
+                header=first_batch,
+            )
+
+            total_candidates += len(result)
 
     print("\nDone.")
     print(
         f"Candidate pairs: "
-        f"{len(result):,}"
+        f"{total_candidates:,}"
     )
     print(
         f"Saved: {output}"
