@@ -7,11 +7,12 @@ import json
 import math
 from pathlib import Path
 import re
+import time
 import unicodedata
 
 import numpy as np
 import pandas as pd
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, hstack, vstack
 from sklearn.feature_extraction.text import HashingVectorizer, TfidfVectorizer
 from sklearn.preprocessing import normalize as sparse_normalize
 from unidecode import unidecode
@@ -22,7 +23,7 @@ LEGAL = {"incorporated": "inc", "corporation": "corp", "company": "co",
          "limited": "ltd", "private": "pvt", "priv": "pvt", "pvt": "pvt"}
 SUFFIXES = {"inc", "corp", "co", "ltd", "pvt", "llc", "llp", "plc"}
 ROUTES = ("native_char", "native_word", "address_char", "numeric", "rare_token",
-          "translit_char", "core_char")
+          "translit_char", "core_char", "reverse")
 TEXT_ROUTES = (("native_char", "name_native", "char_wb", (3, 5)),
                ("native_word", "name_native", "word", (1, 2)),
                ("address_char", "address_native", "char_wb", (3, 5)))
@@ -228,6 +229,333 @@ def token_matrix(token_lists, vocab, weights):
                        np.asarray(indices, dtype=np.int32),
                        np.asarray(indptr, dtype=np.int32)),
                       shape=(len(indptr) - 1, len(vocab)))
+
+
+def reverse_vectorizers(features=2**18):
+    return (
+        HashingVectorizer(analyzer="word", ngram_range=(1, 2),
+                          n_features=features, alternate_sign=False,
+                          norm=None, dtype=np.float32),
+        HashingVectorizer(analyzer="char_wb", ngram_range=(3, 4),
+                          n_features=features, alternate_sign=False,
+                          norm=None, dtype=np.float32),
+        HashingVectorizer(analyzer="word", ngram_range=(1, 2),
+                          n_features=features, alternate_sign=False,
+                          norm=None, dtype=np.float32),
+    )
+
+
+def reverse_fields(raw):
+    frame = retrieval_prep(raw)
+    return (frame.name_native.tolist(),
+            frame.name_core.str.replace(" ", "", regex=False).tolist(),
+            frame.address_native.tolist())
+
+
+def reverse_matrix(fields, vectorizers, idfs):
+    blocks = []
+    for values, vectorizer, idf, weight in zip(
+            fields, vectorizers, idfs, (1.5, 1.5, 1.0)):
+        block = vectorizer.transform(values).multiply(idf).tocsr()
+        block.eliminate_zeros()
+        block = sparse_normalize(block, copy=False)
+        blocks.append(block * weight)
+    return sparse_normalize(hstack(blocks, format="csr"), copy=False)
+
+
+def prune_reverse_query(matrix, features, top_per_field=6):
+    """Keep the strongest features in each view to bound reverse postings."""
+    data, indices, indptr = [], [], [0]
+    for row in range(matrix.shape[0]):
+        lo, hi = matrix.indptr[row:row + 2]
+        cols, values = matrix.indices[lo:hi], matrix.data[lo:hi]
+        for block in range(3):
+            positions = np.flatnonzero((cols >= block * features) &
+                                       (cols < (block + 1) * features))
+            if len(positions) > top_per_field:
+                positions = positions[np.argpartition(values[positions],
+                                                     -top_per_field)[-top_per_field:]]
+            indices.extend(cols[positions])
+            data.extend(values[positions])
+        indptr.append(len(indices))
+    trimmed = csr_matrix((np.asarray(data, dtype=np.float32),
+                          np.asarray(indices, dtype=np.int32),
+                          np.asarray(indptr, dtype=np.int32)), shape=matrix.shape)
+    return sparse_normalize(trimmed, copy=False)
+
+
+def reverse_retrieve(source, old_target, old_audit, folder, split,
+                     source_chunk=50000, target_chunk=50000, reverse_top=10,
+                     cap=100, hash_features=2**18, query_top_per_field=6,
+                     profile_targets=None):
+    """Rank each target against the complete S1 corpus, then invert top ranks."""
+    source_path = folder / f"{split}_source1.tsv"
+    vectorizers = reverse_vectorizers(hash_features)
+    dfs = [np.zeros(hash_features, dtype=np.int32) for _ in vectorizers]
+    source_population = 0
+    print("Reverse pass 1: S1 document frequencies", flush=True)
+    for raw in pd.read_csv(source_path, sep="\t", dtype=str,
+                           keep_default_na=False, chunksize=source_chunk):
+        for df, vec, values in zip(dfs, vectorizers, reverse_fields(raw)):
+            df += np.asarray(vec.transform(values).sign().sum(axis=0)).ravel().astype(np.int32)
+        source_population += len(raw)
+        if source_population % 500000 < source_chunk:
+            print(f"  S1 DF: {source_population:,}", flush=True)
+    max_fractions = (.005, .001, .005)
+    idfs = []
+    for df, fraction in zip(dfs, max_fractions):
+        idf = (np.log((source_population + 1) / (df + 1)) + 1).astype(np.float32)
+        idf[(df == 0) | (df > source_population * fraction)] = 0
+        idfs.append(idf)
+    print("Reverse pass 2: build full S1 sparse index", flush=True)
+    source_ids, blocks = [], []
+    for raw in pd.read_csv(source_path, sep="\t", dtype=str,
+                           keep_default_na=False, chunksize=source_chunk):
+        source_ids.extend(raw.entity_id.tolist())
+        blocks.append(reverse_matrix(reverse_fields(raw), vectorizers, idfs))
+        if len(source_ids) % 500000 < source_chunk:
+            print(f"  S1 index: {len(source_ids):,}", flush=True)
+    full_source = vstack(blocks, format="csr")
+    del blocks
+    if len(source_ids) != source_population:
+        raise ValueError("Full S1 index population changed between passes")
+    wanted = set(source.entity_id)
+    if not wanted.issubset(source_ids):
+        raise ValueError("Study S1 rows are missing from the complete S1 index")
+    cohort_rows = [j for j, sid in enumerate(source_ids) if sid in wanted]
+    cohort_source = full_source[cohort_rows]
+    source_index = {value: i for i, value in enumerate(source.entity_id)}
+    evidence = [defaultdict(dict) for _ in range(len(source))]
+    for row in old_audit.itertuples(index=False):
+        i = source_index[row.source1_entity_id]
+        for route in ROUTES:
+            rank = getattr(row, f"{route}_rank", 0)
+            if rank:
+                evidence[i][row.candidate_entity_id][route] = (
+                    rank, getattr(row, f"{route}_score"))
+    print("Reverse pass 3: stream all targets against full S1 index", flush=True)
+    extra_targets, target_population, fully_scored = [], 0, 0
+    old_ids = set(old_target.entity_id)
+    started = time.monotonic()
+    for _, raw in target_chunks(folder, split, target_chunk):
+        if profile_targets is not None:
+            raw = raw.iloc[:max(0, profile_targets - target_population)]
+            if raw.empty:
+                break
+        fields = reverse_fields(raw)
+        query = prune_reverse_query(reverse_matrix(fields, vectorizers, idfs),
+                                    hash_features, query_top_per_field)
+        selected_local = set()
+        for start in range(0, len(raw), 64):
+            local_query = query[start:start + 64]
+            cohort_hits = (local_query @ cohort_source.T).tocsr()
+            active = np.flatnonzero(np.diff(cohort_hits.indptr))
+            if not len(active):
+                continue
+            scores = (local_query[active] @ full_source.T).tocsr()
+            fully_scored += len(active)
+            for local, matches in enumerate(top_sparse_scores(scores, reverse_top)):
+                raw_j = start + int(active[local])
+                target_id = raw.entity_id.iat[raw_j]
+                for rank, (source_j, score) in enumerate(matches, 1):
+                    if score <= 0:
+                        continue
+                    sid = source_ids[source_j]
+                    i = source_index.get(sid)
+                    if i is not None:
+                        evidence[i][target_id]["reverse"] = (rank, score)
+                        if target_id not in old_ids:
+                            selected_local.add(raw_j)
+        if selected_local:
+            extra_targets.append(prep(raw.iloc[sorted(selected_local)].copy()))
+        target_population += len(raw)
+        if target_population % 50000 < target_chunk or profile_targets is not None:
+            print(f"  reverse targets: {target_population:,}; full-index scored: {fully_scored:,}; "
+                  f"seconds: {time.monotonic() - started:.1f}", flush=True)
+        if profile_targets is not None and target_population >= profile_targets:
+            break
+    target = pd.concat([old_target, *extra_targets], ignore_index=True).drop_duplicates("entity_id")
+    def make_frame(limit):
+        rows = []
+        for i, items in enumerate(evidence):
+            ordered = sorted(items, key=lambda tid: (
+                -len(items[tid]),
+                -sum(1 / (rank + 1) for rank, _ in items[tid].values()), tid))
+            if limit is not None:
+                ordered = ordered[:limit]
+            for tid in ordered:
+                row = {"source1_entity_id": source.entity_id.iat[i],
+                       "candidate_entity_id": tid,
+                       "route_count": len(items[tid])}
+                for route in ROUTES:
+                    rank, score = items[tid].get(route, (0, 0.0))
+                    row[f"{route}_rank"], row[f"{route}_score"] = rank, score
+                rows.append(row)
+        return pd.DataFrame(rows)
+    return target, make_frame(cap), make_frame(None), target_population, source_population
+
+
+def reverse_ann_retrieve(source, old_target, old_audit, folder, split, cache_dir,
+                         source_chunk=50000, target_chunk=20000, reverse_top=10,
+                         cap=100, hash_features=2**18, components=128,
+                         nlist=2048, nprobe=16, threads=8,
+                         profile_targets=None):
+    """Approximate full-S1 reverse search; labels never enter the index or search."""
+    import sys
+    local_deps = ROOT / "research_runs/python_deps"
+    if local_deps.exists():
+        sys.path.insert(0, str(local_deps))
+    import faiss
+    from sklearn.random_projection import SparseRandomProjection
+
+    faiss.omp_set_num_threads(threads)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    source_path = folder / f"{split}_source1.tsv"
+    vectorizers = reverse_vectorizers(hash_features)
+    projector = SparseRandomProjection(n_components=components,
+                                       random_state=2026, dense_output=True)
+    projector.fit(csr_matrix((1, 3 * hash_features), dtype=np.float32))
+    index_path = cache_dir / "reverse_ann.index"
+    ids_path = cache_dir / "reverse_source_ids.parquet"
+    idf_path = cache_dir / "reverse_idfs.npz"
+    config_path = cache_dir / "reverse_ann_cache.json"
+    source_stat = source_path.stat()
+    expected = {"source_path": str(source_path.resolve()),
+                "source_bytes": source_stat.st_size,
+                "source_mtime_ns": source_stat.st_mtime_ns,
+                "hash_features": hash_features, "components": components,
+                "nlist": nlist}
+    if all(path.exists() for path in (index_path, ids_path, idf_path, config_path)):
+        recorded = json.loads(config_path.read_text())
+        if any(recorded.get(key) != value for key, value in expected.items()):
+            raise ValueError("Existing reverse ANN cache has different source or settings")
+        source_ids = pd.read_parquet(ids_path).entity_id.tolist()
+        saved = np.load(idf_path)
+        idfs = [saved[f"idf_{j}"] for j in range(3)]
+        index = faiss.read_index(str(index_path))
+        source_population = len(source_ids)
+        print(f"Loaded cached ANN index: {source_population:,} S1", flush=True)
+    else:
+        dfs = [np.zeros(hash_features, dtype=np.int32) for _ in vectorizers]
+        source_population = 0
+        print("ANN pass 1: full-S1 document frequencies", flush=True)
+        for raw in pd.read_csv(source_path, sep="\t", dtype=str,
+                               keep_default_na=False, chunksize=source_chunk):
+            for df, vec, values in zip(dfs, vectorizers, reverse_fields(raw)):
+                df += np.asarray(vec.transform(values).sign().sum(axis=0)).ravel().astype(np.int32)
+            source_population += len(raw)
+            if source_population % 500000 < source_chunk:
+                print(f"  S1 DF: {source_population:,}", flush=True)
+        idfs = []
+        for df, fraction in zip(dfs, (.005, .001, .005)):
+            idf = (np.log((source_population + 1) / (df + 1)) + 1).astype(np.float32)
+            idf[(df == 0) | (df > source_population * fraction)] = 0
+            idfs.append(idf)
+        np.savez_compressed(idf_path, **{f"idf_{j}": value for j, value in enumerate(idfs)})
+        vectors_path = cache_dir / "reverse_source_vectors.f32"
+        dense = np.memmap(vectors_path, mode="w+", dtype=np.float32,
+                          shape=(source_population, components))
+        source_ids, offset = [], 0
+        print("ANN pass 2: project full S1 into cached dense vectors", flush=True)
+        for raw in pd.read_csv(source_path, sep="\t", dtype=str,
+                               keep_default_na=False, chunksize=source_chunk):
+            sparse = reverse_matrix(reverse_fields(raw), vectorizers, idfs)
+            block = np.asarray(projector.transform(sparse), dtype=np.float32)
+            faiss.normalize_L2(block)
+            dense[offset:offset + len(raw)] = block
+            source_ids.extend(raw.entity_id.tolist())
+            offset += len(raw)
+            if offset % 500000 < source_chunk:
+                print(f"  S1 vectors: {offset:,}", flush=True)
+        if offset != source_population:
+            raise ValueError("S1 population changed between ANN passes")
+        dense.flush()
+        pd.DataFrame({"entity_id": source_ids}).to_parquet(ids_path, index=False)
+        actual_nlist = min(nlist, max(1, source_population // 40))
+        index = faiss.IndexIVFFlat(faiss.IndexFlatIP(components), components,
+                                   actual_nlist, faiss.METRIC_INNER_PRODUCT)
+        sample_count = min(source_population, max(100000, actual_nlist * 40))
+        sample_rows = np.random.default_rng(2026).choice(source_population,
+                                                         sample_count, replace=False)
+        print(f"ANN pass 3: train IVF with {sample_count:,} S1 vectors", flush=True)
+        index.train(np.asarray(dense[sample_rows], dtype=np.float32))
+        for start in range(0, source_population, source_chunk):
+            index.add(np.asarray(dense[start:start + source_chunk], dtype=np.float32))
+            if (start + source_chunk) % 500000 < source_chunk:
+                print(f"  ANN indexed: {min(start + source_chunk, source_population):,}", flush=True)
+        faiss.write_index(index, str(index_path))
+        config_path.write_text(json.dumps({**expected,
+                                           "source_population": source_population,
+                                           "actual_nlist": actual_nlist}, indent=2))
+    index.nprobe = nprobe
+    source_index = {value: i for i, value in enumerate(source.entity_id)}
+    cohort_lookup = np.full(source_population, -1, dtype=np.int32)
+    for j, sid in enumerate(source_ids):
+        i = source_index.get(sid)
+        if i is not None:
+            cohort_lookup[j] = i
+    if np.count_nonzero(cohort_lookup >= 0) != len(source):
+        raise ValueError("Study S1 rows are missing from full ANN source index")
+    evidence = [defaultdict(dict) for _ in range(len(source))]
+    for row in old_audit.itertuples(index=False):
+        i = source_index[row.source1_entity_id]
+        for route in ROUTES:
+            rank = getattr(row, f"{route}_rank", 0)
+            if rank:
+                evidence[i][row.candidate_entity_id][route] = (
+                    rank, getattr(row, f"{route}_score"))
+    old_ids = set(old_target.entity_id)
+    extra_targets, target_population = [], 0
+    started = time.monotonic()
+    print("ANN pass 4: stream all targets", flush=True)
+    for _, raw in target_chunks(folder, split, target_chunk):
+        if profile_targets is not None:
+            raw = raw.iloc[:max(0, profile_targets - target_population)]
+            if raw.empty:
+                break
+        sparse = reverse_matrix(reverse_fields(raw), vectorizers, idfs)
+        query = np.asarray(projector.transform(sparse), dtype=np.float32)
+        faiss.normalize_L2(query)
+        scores, neighbors = index.search(query, reverse_top)
+        valid = (neighbors >= 0) & (scores > 0)
+        local_s1 = np.full(neighbors.shape, -1, dtype=np.int32)
+        local_s1[valid] = cohort_lookup[neighbors[valid]]
+        rows, ranks = np.nonzero(local_s1 >= 0)
+        extra = set()
+        for row, rank in zip(rows, ranks):
+            target_id = raw.entity_id.iat[row]
+            i = int(local_s1[row, rank])
+            evidence[i][target_id]["reverse"] = (int(rank + 1), float(scores[row, rank]))
+            if target_id not in old_ids:
+                extra.add(int(row))
+        if extra:
+            extra_targets.append(prep(raw.iloc[sorted(extra)].copy()))
+        target_population += len(raw)
+        if target_population % 1000000 < target_chunk:
+            elapsed = time.monotonic() - started
+            print(f"  ANN targets: {target_population:,}; reverse cohort hits: "
+                  f"{sum(len(items) for items in evidence):,}; seconds: {elapsed:.1f}", flush=True)
+        if profile_targets is not None and target_population >= profile_targets:
+            break
+    target = pd.concat([old_target, *extra_targets], ignore_index=True).drop_duplicates("entity_id")
+    def make_frame(limit):
+        rows = []
+        for i, items in enumerate(evidence):
+            ordered = sorted(items, key=lambda tid: (
+                -len(items[tid]),
+                -sum(1 / (rank + 1) for rank, _ in items[tid].values()), tid))
+            if limit is not None:
+                ordered = ordered[:limit]
+            for tid in ordered:
+                row = {"source1_entity_id": source.entity_id.iat[i],
+                       "candidate_entity_id": tid,
+                       "route_count": len(items[tid])}
+                for route in ROUTES:
+                    rank, score = items[tid].get(route, (0, 0.0))
+                    row[f"{route}_rank"], row[f"{route}_score"] = rank, score
+                rows.append(row)
+        return pd.DataFrame(rows)
+    return target, make_frame(cap), make_frame(None), target_population, source_population
 
 
 def retrieval_prep(raw, translit=False):
@@ -640,11 +968,61 @@ def main():
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--audit-retrieval", action="store_true", help="Keep raw route union for ablations")
     p.add_argument("--augment-from", type=Path, help="Prior full-target route audit to augment")
+    p.add_argument("--reverse-from", type=Path,
+                   help="Add target-to-full-S1 retrieval to a prior full-target route audit")
+    p.add_argument("--reverse-ann-from", type=Path,
+                   help="Approximate target-to-full-S1 retrieval from a prior full-target route audit")
+    p.add_argument("--ann-cache-dir", type=Path)
+    p.add_argument("--ann-components", type=int, default=128)
+    p.add_argument("--ann-nlist", type=int, default=2048)
+    p.add_argument("--ann-nprobe", type=int, default=16)
+    p.add_argument("--ann-threads", type=int, default=8)
+    p.add_argument("--ann-profile-targets", type=int,
+                   help="Bounded ANN speed profile; never a full-pool recall result")
+    p.add_argument("--reverse-top", type=int, default=10)
+    p.add_argument("--reverse-hash-features", type=int, default=2**18)
+    p.add_argument("--reverse-query-top-per-field", type=int, default=6)
+    p.add_argument("--reverse-source-chunk", type=int, default=50000)
+    p.add_argument("--reverse-profile-targets", type=int,
+                   help="Bounded runtime profile; output is not a full-pool retrieval result")
     args = p.parse_args()
     if args.sample_offset < 0:
         p.error("--sample-offset must be nonnegative")
     folder = args.data_dir / args.split
-    if args.augment_from:
+    source_population = None
+    if args.reverse_from and args.reverse_ann_from:
+        p.error("Choose one reverse retrieval mode")
+    if args.reverse_ann_from:
+        if args.augment_from or args.stream_target or args.sample_s1 or args.target_limit:
+            p.error("--reverse-ann-from excludes other retrieval modes and target limits")
+        prefix = args.reverse_ann_from / args.split
+        s1 = pd.read_parquet(f"{prefix}_s1.parquet")
+        old_target = pd.read_parquet(f"{prefix}_target.parquet")
+        old_audit = pd.read_parquet(f"{prefix}_route_audit.parquet")
+        target, pairs, audit, population, source_population = reverse_ann_retrieve(
+            s1, old_target, old_audit, folder, args.split,
+            args.ann_cache_dir or args.output_dir / "ann_cache",
+            source_chunk=args.reverse_source_chunk, target_chunk=args.target_chunk,
+            reverse_top=args.reverse_top, cap=args.cap,
+            hash_features=args.reverse_hash_features,
+            components=args.ann_components, nlist=args.ann_nlist,
+            nprobe=args.ann_nprobe, threads=args.ann_threads,
+            profile_targets=args.ann_profile_targets)
+    elif args.reverse_from:
+        if args.augment_from or args.stream_target or args.sample_s1 or args.target_limit:
+            p.error("--reverse-from excludes other retrieval modes and target limits")
+        prefix = args.reverse_from / args.split
+        s1 = pd.read_parquet(f"{prefix}_s1.parquet")
+        old_target = pd.read_parquet(f"{prefix}_target.parquet")
+        old_audit = pd.read_parquet(f"{prefix}_route_audit.parquet")
+        target, pairs, audit, population, source_population = reverse_retrieve(
+            s1, old_target, old_audit, folder, args.split,
+            source_chunk=args.reverse_source_chunk, target_chunk=args.target_chunk,
+            reverse_top=args.reverse_top, cap=args.cap,
+            hash_features=args.reverse_hash_features,
+            query_top_per_field=args.reverse_query_top_per_field,
+            profile_targets=args.reverse_profile_targets)
+    elif args.augment_from:
         if args.stream_target or args.sample_s1 or args.target_limit or args.sample_offset:
             p.error("--augment-from excludes --stream-target, --sample-s1 and --target-limit")
         prefix = args.augment_from / args.split
@@ -674,7 +1052,7 @@ def main():
     s1.to_parquet(f"{prefix}_s1.parquet", index=False)
     target.to_parquet(f"{prefix}_target.parquet", index=False)
     pairs.to_parquet(f"{prefix}_pairs.parquet", index=False)
-    if (args.stream_target or args.augment_from) and audit is not None:
+    if (args.stream_target or args.augment_from or args.reverse_from or args.reverse_ann_from) and audit is not None:
         audit.to_parquet(f"{prefix}_route_audit.parquet", index=False)
         (args.output_dir / f"{args.split}_retrieval_run.json").write_text(json.dumps({
             "target_pool_size": population, "source_count": len(s1),
@@ -682,6 +1060,16 @@ def main():
             "route_top": args.route_top, "cap": args.cap,
             "sample_offset": args.sample_offset if args.stream_target else None,
             "augmented_from": str(args.augment_from) if args.augment_from else None,
+            "reverse_from": str(args.reverse_from) if args.reverse_from else None,
+            "reverse_ann_from": str(args.reverse_ann_from) if args.reverse_ann_from else None,
+            "reverse_top": args.reverse_top if args.reverse_from else None,
+            "ann_profile_targets": args.ann_profile_targets if args.reverse_ann_from else None,
+            "ann_components": args.ann_components if args.reverse_ann_from else None,
+            "ann_nlist": args.ann_nlist if args.reverse_ann_from else None,
+            "ann_nprobe": args.ann_nprobe if args.reverse_ann_from else None,
+            "reverse_query_top_per_field": args.reverse_query_top_per_field if args.reverse_from else None,
+            "reverse_profile_targets": args.reverse_profile_targets if args.reverse_from else None,
+            "reverse_source_population": source_population,
             "labels_used_for_retrieval": False,
         }, indent=2))
     print(f"{args.split}: S1={len(s1)} target_pool={population} selected_target={len(target)} pairs={len(pairs)} "

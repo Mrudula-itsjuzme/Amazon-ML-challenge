@@ -75,6 +75,63 @@ precision is at least 0.97. The validator writes a single
 `external_rerank_confirmation.json` and refuses to reopen it. No route or
 model setting will be changed based on that confirmation.
 
+The external check completed on 500 disjoint S1 entities and 1,725 true links,
+retrieved from all 10,320,219 targets. It **confirmed** the fixed K=100
+candidate. Both models trained on the same earlier 800 development S1 groups;
+their thresholds were 0.9 for K=60 and 0.8 for K=100, each selected from
+development-only grouped OOF predictions.
+
+| External metric | K=60 baseline | K=100 missing-address model |
+|---|---:|---:|
+| Blocker recall | 0.9467 | 0.9670 |
+| Macro entity F0.5 | 0.8875 | 0.8932 |
+| Pair precision | 0.9818 | 0.9704 |
+| Pair recall | 0.7797 | 0.8186 |
+| Missing-address F0.5 (67 entities) | 0.8513 | 0.8725 |
+| Cross-script F0.5 (69 entities) | 0.7800 | 0.8112 |
+| Singleton accuracy (28 entities) | 0.8929 | 0.7857 |
+| Blocker misses / matcher false negatives / false positives | 92 / 288 / 25 | 57 / 256 / 43 |
+
+The K=100 gain came with more false positives and lower singleton accuracy.
+Precision is only slightly above the frozen 0.97 floor, so this cohort alone
+does not establish a comfortable precision margin for deployment. The result
+is saved in `research_runs/ber_fullpool_500_offset1300_aug1/external_rerank_confirmation.json`.
+
+## Reverse retrieval research status
+
+`01_pipeline.py --reverse-from` contains an experimental target-to-S1 route.
+It builds native-name, compact-name and address sparse views over the complete
+2,206,821-record training S1 population and streams target records, retaining
+only targets for which a study S1 appears in the global top ten. The bounded
+4,000-target / 2,000-S1 smoke preserved all earlier candidate pairs and added
+reverse pairs. This is correctness plumbing, not a challenge recall result.
+
+The full target run was stopped at the runtime gate. On this 15 GiB host,
+scoring **5,000 targets against all 2,206,821 S1** took **88 seconds** after
+index construction, with 4,060 targets requiring full-index scoring. At that
+measured throughput, 10,320,219 targets would take roughly **50 hours** of
+scoring alone. The bounded run is explicitly marked
+`reverse_profile_targets=5000` in its manifest. No full-pool reverse recall,
+99% blocker result, or matcher gain has been measured. The reverse route has
+not been added to the learned matcher or promoted to the submission path;
+target competition, residual features, and exclusivity remain untested.
+
+### Colab ANN experiment
+
+`reverse_ann_fullpool_colab.ipynb` runs an approximate reverse route with a
+cached 128-dimensional sparse random projection and Faiss IVF index over all
+training S1 entities. It first times 100,000 targets, refuses a projected scan
+above the notebook's session guard, and only reports blocker recall after its
+manifest confirms all 10,320,219 targets were scanned. The notebook compares
+raw and K=40/60/80/100/150 recall on the 800 development S1 entities; it does
+not open the previously used 200-entity confirmation partition. Its output is
+an experiment for route selection, not a matcher metric or submission change.
+
+Upload `research_runs/colab_reverse_bundle.zip` and the four original training
+TSVs to `MyDrive/ml_challenge/` as shown in the notebook. The bundle contains
+the code and existing forward retrieval artifacts, but no dataset or labels.
+The notebook saves full retrieval outputs to `MyDrive/ml_challenge/reverse_ann_result`.
+
 ## Submission path and limits
 
 The earlier reduced-target pilot excluded most true links and its model scores must not be used as estimates of full-pool quality. The previous mru pipeline also seeded its candidate pool with ground-truth targets and ASCII-stripped native name text; these issues are avoided in this study.
