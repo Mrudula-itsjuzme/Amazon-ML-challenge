@@ -387,7 +387,7 @@ def reverse_retrieve(source, old_target, old_audit, folder, split,
                 row = {"source1_entity_id": source.entity_id.iat[i],
                        "candidate_entity_id": tid,
                        "route_count": len(items[tid])}
-                for route in ROUTES:
+                for route in (*ROUTES, "reverse"):
                     rank, score = items[tid].get(route, (0, 0.0))
                     row[f"{route}_rank"], row[f"{route}_score"] = rank, score
                 rows.append(row)
@@ -550,7 +550,7 @@ def reverse_ann_retrieve(source, old_target, old_audit, folder, split, cache_dir
                 row = {"source1_entity_id": source.entity_id.iat[i],
                        "candidate_entity_id": tid,
                        "route_count": len(items[tid])}
-                for route in ROUTES:
+                for route in (*ROUTES, "reverse"):
                     rank, score = items[tid].get(route, (0, 0.0))
                     row[f"{route}_rank"], row[f"{route}_score"] = rank, score
                 rows.append(row)
@@ -997,8 +997,21 @@ def main():
             p.error("--reverse-ann-from excludes other retrieval modes and target limits")
         prefix = args.reverse_ann_from / args.split
         s1 = pd.read_parquet(f"{prefix}_s1.parquet")
-        old_target = pd.read_parquet(f"{prefix}_target.parquet")
-        old_audit = pd.read_parquet(f"{prefix}_route_audit.parquet")
+        target_path = Path(f"{prefix}_target.parquet")
+        audit_path = Path(f"{prefix}_route_audit.parquet")
+        if target_path.exists():
+            old_target = pd.read_parquet(target_path)
+        else:
+            print("Reverse ANN base target artifact missing; running reverse-only retrieval profile.", flush=True)
+            old_target = s1.iloc[0:0].copy()
+        if audit_path.exists():
+            old_audit = pd.read_parquet(audit_path)
+        else:
+            print("Reverse ANN base route audit missing; forward-route union is disabled for this run.", flush=True)
+            old_audit = pd.DataFrame(columns=[
+                "source1_entity_id", "candidate_entity_id",
+                *[f"{route}_{suffix}" for route in ROUTES for suffix in ("rank", "score")]
+            ])
         target, pairs, audit, population, source_population = reverse_ann_retrieve(
             s1, old_target, old_audit, folder, args.split,
             args.ann_cache_dir or args.output_dir / "ann_cache",
