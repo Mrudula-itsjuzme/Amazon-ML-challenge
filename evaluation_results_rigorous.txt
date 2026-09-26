@@ -1,0 +1,78 @@
+Loading Ground Truth and sampling S1 queries...
+Sampled 5000 S1 entities, requiring 18406 S2/S3 matches.
+Loading S1...
+Loading S2...
+Loading S3...
+Target pool size: 218406
+Building Routes...
+Evaluating Recall...
+
+=== RECALL EVALUATION RESULTS ===
+Total True Matches Evaluated: 18406
+Overall Recall@50: 99.46%
+Recall@20: 99.08%
+Recall@10: 98.46%
+Recall@5: 96.33%
+
+Cross-script Recall: 97.96% (2547 total)
+Missing-addr Recall: 97.33% (862 total)
+India Recall: 98.91% (7441 total)
+US Recall: 99.83% (10965 total)
+
+=== ROUTE ATTRIBUTION ===
+Route                               |     % Recovered |    Unique Recoveries
+Route D (Address Char-TFIDF)        |           93.5% |                 1598
+Route A (Raw Name Char-TFIDF)       |           83.5% |                    1
+Route B (Translit Char-TFIDF)       |           83.4% |                    0
+Route C (Raw Name Word-TFIDF)       |           79.3% |                   42
+Route E (Numeric Address)           |           38.0% |                    8
+
+=== CROSS-SCRIPT UNIQUE RECOVERIES ===
+Route D (Address Char-TFIDF): 933 unique rescues for cross-script pairs
+Route E (Numeric Address): 6 unique rescues for cross-script pairs
+
+=== EFFICIENCY ===
+Average candidates per query: 167.5
+Candidate reduction ratio: 99.9233% (eliminated 218238.5 candidates/query)
+
+=== SAMPLE MISSED MATCHES (Worst Cases) ===
+Missed:
+  S1 Name: All Business Private Limited | S2 Name: ऑल बिजनेस प्राइवेट लिमिटेड
+  S1 Addr: Plot No.141 Vill Kapashera, Delhi, South West Delhi, Delhi | S2 Addr: Plot No.141 Vill Kapahsera, Delhi, NULL, दिल्ली
+
+Missed:
+  S1 Name: Vijay Constructions Private Limited | S2 Name: ವಿಜಯ್ ಕನ್‌ಸ್ಟ್ರಕ್ಷನ್ಸ್ ಪ್ರೈವೇಟ್ ಲಿಮಿಟೆಡ್
+  S1 Addr: 99, Jakkasandra Extention, Off Sarjapur Road, Koramangala, Bangalore, Karnataka | S2 Addr: Plot 27 99, Bangalore, KA
+
+Missed:
+  S1 Name: Sunrise Software Limited | S2 Name: সানরাইজ সফটওয়্যার লিমিটেড
+  S1 Addr: 57-F, Purna Das Road, Kolkata, Howrah, West Bengal | S2 Addr: Howrah, Ballygunge, NULL, পশ্চিমবঙ্গ, #655. 57-F
+
+Missed:
+  S1 Name: Sunrise Software Limited | S2 Name: সানরাইজ সফটওয়্যার লিমিটেড
+  S1 Addr: 57-F, Purna Das Road, Kolkata, Howrah, West Bengal | S2 Addr: H.no 655. 57-F, NULL, Kolkata, Ballygunge, পশ্চিমবঙ্গ
+
+Missed:
+  S1 Name: Hotel Management Private Limited | S2 Name: होटल मैनेजमेंट प्राइवेट लिमिटेड
+  S1 Addr: H No 268, Ward No 3, Daundaj, Tal Purandar, Pune, Maharashtra | S2 Addr: H No 68, Pune, महाराष्ट्र
+
+Missed:
+  S1 Name: Hotel Technology Private Limited | S2 Name: होटल टेक्नोलॉजी प्राइवेट लिमिटेड
+  S1 Addr: 44, Pitrudhan House, 1St Floor Charkop Village, M.G.Road, Kandivali Wes, T, Mumbai, Mumbai City, Maharashtra | S2 Addr: 0044, MUMBAI, MUMBAI CITY, Maharashtra
+
+Missed:
+  S1 Name: Hotel Technology Private Limited | S2 Name: होटल टेक्नोलॉजी प्राइवेट लिमिटेड
+  S1 Addr: 44, Pitrudhan House, 1St Floor Charkop Village, M.G.Road, Kandivali Wes, T, Mumbai, Mumbai City, Maharashtra | S2 Addr: #44, Mumbai City, महाराष्ट्र
+
+Missed:
+  S1 Name: Global Consultancy Private Limited | S2 Name: Gl0bal Consultancy  Private
+  S1 Addr: A-8/3, Ground Floor, Sector-15, Rohini, North West Delhi, Delhi, North West Delhi | S2 Addr: A-g-8/3, North West Delhi, DL
+
+Missed:
+  S1 Name: Orthopedic Associates LLC | S2 Name: associatesorthopedic.com
+  S1 Addr: NY, Brookhaven, 2 Dogwood Lane | S2 Addr: 2 Dogwood Ln, Miller Place, New York
+
+Missed:
+  S1 Name: Sree Solutions Private Limited | S2 Name: ஸ்ரீ சொல்யூஷன்ஸ் பிரைவேட் லிமிடெட்
+  S1 Addr: 714, 9Th Street, 1St Cross, S A Colony, Tondiarpet Fort St George, Chennai, Tamil Nadu | S2 Addr: 714, Chennai, தமிழ்நாடு
+

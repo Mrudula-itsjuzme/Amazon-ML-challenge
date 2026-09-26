@@ -1,0 +1,16 @@
+slice,entities,macro_f05,fold
+all,3334,0.9813014019869077,1
+cross_script_true_match,1099,0.979034562756823,1
+same_script_true_match,2235,0.9824160580557503,1
+missing_address_true_match,495,0.9693682587898478,1
+address_present_true_match,2839,0.9833820310402873,1
+all,3333,0.983634471747797,2
+cross_script_true_match,1142,0.9814842716187644,2
+same_script_true_match,2191,0.9847552059090726,2
+missing_address_true_match,516,0.9749236728050001,2
+address_present_true_match,2817,0.9852300600525479,2
+all,3333,0.9840996258425238,3
+cross_script_true_match,1068,0.9824145361296076,3
+same_script_true_match,2265,0.9848941847005345,3
+missing_address_true_match,520,0.9758468178087216,3
+address_present_true_match,2813,0.9856252071356547,3

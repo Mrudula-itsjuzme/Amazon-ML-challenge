@@ -1,0 +1,69 @@
+Loading data...
+
+===== DATASET DIAGNOSTICS =====
+Rows: 999999
+S1 entities: 10000
+Positive pairs: 36460
+Negative pairs: 963539
+same_country rate, positives: 1.0000
+same_country rate, negatives: 0.8542
+True-pair cross-script rate: 0.1377
+True-pair missing-address rate: 0.0456
+
+Using 22 features:
+['raw_name_seq', 'translit_name_seq', 'raw_name_3gram', 'translit_name_3gram', 'name_token_set_ratio', 'name_jaccard', 'name_tfidf_overlap', 'addr_seq', 'addr_char_3gram', 'addr_jaccard', 'addr_tfidf_overlap', 'addr_numeric_jaccard', 'addr_numeric_shared_count', 'addr_numeric_any_overlap', 'addr_numeric_longest_match', 'addr_numeric_5_6digit_overlap', 'name_a_nonlatin', 'name_b_nonlatin', 'cross_script', 'addr_missing', 'both_addr_present', 'same_country']
+
+===== Fold 1 =====
+[LightGBM] [Info] Number of positive: 19467, number of negative: 513733
+[LightGBM] [Info] Auto-choosing row-wise multi-threading, the overhead of testing was 0.024033 seconds.
+You can set `force_row_wise=true` to remove the overhead.
+And if memory is not enough, you can set `force_col_wise=true`.
+[LightGBM] [Info] Total Bins 2411
+[LightGBM] [Info] Number of data points in the train set: 533200, number of used features: 21
+[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.500000 -> initscore=0.000000
+[LightGBM] [Info] Start training from score 0.000000
+Threshold: 0.900
+Validation macro F0.5: 0.981301
+
+===== Fold 2 =====
+[LightGBM] [Info] Number of positive: 19323, number of negative: 513977
+[LightGBM] [Info] Auto-choosing row-wise multi-threading, the overhead of testing was 0.012187 seconds.
+You can set `force_row_wise=true` to remove the overhead.
+And if memory is not enough, you can set `force_col_wise=true`.
+[LightGBM] [Info] Total Bins 2407
+[LightGBM] [Info] Number of data points in the train set: 533300, number of used features: 21
+[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.500000 -> initscore=0.000000
+[LightGBM] [Info] Start training from score 0.000000
+Threshold: 0.950
+Validation macro F0.5: 0.983634
+
+===== Fold 3 =====
+[LightGBM] [Info] Number of positive: 19372, number of negative: 513927
+[LightGBM] [Info] Auto-choosing row-wise multi-threading, the overhead of testing was 0.010331 seconds.
+You can set `force_row_wise=true` to remove the overhead.
+And if memory is not enough, you can set `force_col_wise=true`.
+[LightGBM] [Info] Total Bins 2408
+[LightGBM] [Info] Number of data points in the train set: 533299, number of used features: 21
+[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.500000 -> initscore=0.000000
+[LightGBM] [Info] Start training from score 0.000000
+Threshold: 0.950
+Validation macro F0.5: 0.984100
+
+===== CV RESULTS =====
+ fold  threshold  macro_f05  train_entities  val_entities  val_pairs
+    1       0.90   0.981301            6666          3334     333399
+    2       0.95   0.983634            6667          3333     333300
+    3       0.95   0.984100            6667          3333     333300
+
+Mean macro F0.5: 0.983012
+Std macro F0.5: 0.001499
+Mean threshold: 0.933
+
+===== CORRECTED SLICE RESULTS =====
+                            entities  mean_f05   std_f05
+slice                                                   
+missing_address_true_match      1531  0.973380  0.003504
+cross_script_true_match         3309  0.980978  0.001746
+all                            10000  0.983012  0.001499
+same_script_true_match          6691  0.984022  0.001392
+address_present_true_match      8469  0.984746  0.001197

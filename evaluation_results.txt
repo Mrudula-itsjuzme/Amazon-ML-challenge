@@ -1,0 +1,43 @@
+Loading dataset (Large Slice for Evaluation)...
+Target pool size: 400000
+Building Route A: Raw Name char-TFIDF...
+Building Route B: Translit Name char-TFIDF...
+Building Route C: Raw Name token inverted index...
+Building Route D: Address char-TFIDF...
+Building Route E: Numeric Address inverted index...
+Finding valid queries (S1 items with at least one true match in the target pool)...
+Total valid queries: 140
+Querying Route A...
+Querying Route B...
+Querying Route D...
+Evaluating...
+
+=== RECALL EVALUATION RESULTS ===
+Total True Matches Evaluated: 152
+Overall Recall@50: 98.68%
+Recall@20: 98.68%
+Recall@10: 98.03%
+Recall@5: 98.03%
+
+Cross-script Recall: 96.00% (25 total)
+Missing-addr Recall: 66.67% (3 total)
+India Recall: 98.21% (56 total)
+US Recall: 98.96% (96 total)
+
+=== ROUTE ATTRIBUTION ===
+Route                          |     % Recovered |    Unique Recoveries
+Route D (Address)              |           97.3% |                   25
+Route A (Raw Name)             |           75.3% |                    0
+Route B (Translit)             |           75.3% |                    0
+Route E (Numeric)              |           32.0% |                    0
+Route C (Tokens)               |           24.0% |                    0
+
+=== EFFICIENCY ===
+Average candidates per query: 183.0
+Candidate reduction ratio: 99.9543% (eliminated 399817.0 candidates/query)
+
+=== SAMPLE MISSED MATCHES (Worst Cases) ===
+Missed: Cardiology Care Associates | Cardiology Care Enterprises
+  Addr: 55 Stone Wall Farm, Youngsville, NC | nan
+Missed: Universal Systems Private Limited | ইউনিভার্সাল সিস্টেমস প্রাইভেট লিমিটেড
+  Addr: 2, Chowdhury Para Lane, Belgharia, Kolkata, Kolkata, Howrah, West Bengal | 2, N/A, Howrah, Kolkata, পশ্চিমবঙ্গ

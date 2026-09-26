@@ -1,3 +1,5 @@
 student_resource/dataset/
 __MACOSX/
 .DS_Store
+research_runs/
+__pycache__/

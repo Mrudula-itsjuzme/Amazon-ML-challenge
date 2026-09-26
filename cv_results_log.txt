@@ -1,0 +1,56 @@
+Loading data...
+Using 21 features:
+['raw_name_seq', 'translit_name_seq', 'raw_name_3gram', 'translit_name_3gram', 'name_token_set_ratio', 'name_jaccard', 'name_tfidf_overlap', 'addr_seq', 'addr_char_3gram', 'addr_jaccard', 'addr_tfidf_overlap', 'addr_numeric_jaccard', 'addr_numeric_shared_count', 'addr_numeric_any_overlap', 'addr_numeric_longest_match', 'addr_numeric_5_6digit_overlap', 'name_a_nonlatin', 'name_b_nonlatin', 'cross_script', 'both_addr_present', 'same_country']
+
+===== Fold 1 =====
+[LightGBM] [Info] Number of positive: 19467, number of negative: 513733
+[LightGBM] [Info] Auto-choosing row-wise multi-threading, the overhead of testing was 0.013928 seconds.
+You can set `force_row_wise=true` to remove the overhead.
+And if memory is not enough, you can set `force_col_wise=true`.
+[LightGBM] [Info] Total Bins 2409
+[LightGBM] [Info] Number of data points in the train set: 533200, number of used features: 20
+[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.500000 -> initscore=0.000000
+[LightGBM] [Info] Start training from score 0.000000
+Threshold: 0.900
+Validation macro F0.5: 0.981150
+
+===== Fold 2 =====
+[LightGBM] [Info] Number of positive: 19323, number of negative: 513977
+[LightGBM] [Info] Auto-choosing row-wise multi-threading, the overhead of testing was 0.013358 seconds.
+You can set `force_row_wise=true` to remove the overhead.
+And if memory is not enough, you can set `force_col_wise=true`.
+[LightGBM] [Info] Total Bins 2405
+[LightGBM] [Info] Number of data points in the train set: 533300, number of used features: 20
+[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.500000 -> initscore=0.000000
+[LightGBM] [Info] Start training from score 0.000000
+Threshold: 0.925
+Validation macro F0.5: 0.982574
+
+===== Fold 3 =====
+[LightGBM] [Info] Number of positive: 19372, number of negative: 513927
+[LightGBM] [Info] Auto-choosing row-wise multi-threading, the overhead of testing was 0.013492 seconds.
+You can set `force_row_wise=true` to remove the overhead.
+And if memory is not enough, you can set `force_col_wise=true`.
+[LightGBM] [Info] Total Bins 2406
+[LightGBM] [Info] Number of data points in the train set: 533299, number of used features: 20
+[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.500000 -> initscore=0.000000
+[LightGBM] [Info] Start training from score 0.000000
+Threshold: 0.950
+Validation macro F0.5: 0.984016
+
+===== CV RESULTS =====
+   fold  threshold  macro_f05  train_entities  val_entities  val_pairs
+0     1      0.900   0.981150            6666          3334     333399
+1     2      0.925   0.982574            6667          3333     333300
+2     3      0.950   0.984016            6667          3333     333300
+
+Mean macro F0.5: 0.9825800359374476
+Std macro F0.5: 0.001433414558758872
+Mean threshold: 0.9250000000000004
+
+===== SLICE RESULTS =====
+                 entities  mean_f05   std_f05
+slice                                        
+missing_address      8866  0.981514  0.001460
+cross_script         9997  0.982575  0.001431
+all                 10000  0.982580  0.001433
