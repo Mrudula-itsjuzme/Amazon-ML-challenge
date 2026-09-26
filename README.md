@@ -1,22 +1,22 @@
 Training
-
-python 01_preprocess.py
-python 02_generate_candidates.py --split train
-python 03_filter_candidates.py --split train
-python 04_evaluate.py
-
-
+<br><br>
+python 01_preprocess.py <br>
+python 02_generate_candidates.py --split train <br>
+python 03_filter_candidates.py --split train <br>
+python 04_evaluate.py <br>
 
 
-You'll get:
 
-processed/train_*.tsv
+
+You'll get:<br>
+
+processed/train_*.tsv <br>
         ↓
-candidates/train_candidate_pairs.tsv
+candidates/train_candidate_pairs.tsv <br>
         ↓
-filtered/train_final_candidate_pairs.tsv
+filtered/train_final_candidate_pairs.tsv <br>
         ↓
-metrics
+metrics <br>
 
 
 
@@ -24,13 +24,13 @@ metrics
 
 
 Test
+<br><br>
+python 02_generate_candidates.py --split test <br>
+python 03_filter_candidates.py --split test <br>
+python 05_make_submission.py <br>
 
-python 02_generate_candidates.py --split test
-python 03_filter_candidates.py --split test
-python 05_make_submission.py
 
+<br><br>
+giving:<br>
 
-
-giving:
-
-submission/matching_results.tsv
+submission/matching_results.tsv<br>
