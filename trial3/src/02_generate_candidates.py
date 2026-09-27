@@ -1,0 +1,2268 @@
+from pathlib import Path
+from collections import defaultdict, Counter
+import argparse
+import pickle
+import hashlib
+import time
+
+import pandas as pd
+from rapidfuzz import process, fuzz
+
+
+# ============================================================
+# PATHS
+# ============================================================
+
+ROOT = Path(__file__).resolve().parents[1]
+
+PROCESSED_DIR = ROOT / "processed"
+CANDIDATE_DIR = ROOT / "candidates"
+CACHE_DIR = ROOT / "cache"
+
+CANDIDATE_DIR.mkdir(exist_ok=True)
+CACHE_DIR.mkdir(exist_ok=True)
+
+# ============================================================
+# GENERAL CONFIG
+# ============================================================
+
+MAX_RARE_POSTINGS = 5_000
+
+MAX_INTERSECTION_POSTINGS = 100_000
+
+MAX_ROUTE_POOL = 5_000
+
+MAX_CANDIDATES_PER_ENTITY = 200
+
+
+# ============================================================
+# ROUTE BUDGETS
+# ============================================================
+
+EXACT_NAME_BUDGET = 40
+CORE_NAME_BUDGET = 40
+TRANSLIT_BUDGET = 30
+EXACT_ADDRESS_BUDGET = 30
+
+RARE_NAME_BUDGET = 60
+NAME_INTERSECTION_BUDGET = 100
+
+POSTAL_NAME_BUDGET = 40
+NUMBER_NAME_BUDGET = 60
+
+RARE_ADDRESS_BUDGET = 100
+ADDRESS_INTERSECTION_BUDGET = 120
+ADDRESS_NUMBER_BUDGET = 100
+ADDRESS_NUMBER_TOKEN_BUDGET = 100
+
+PREFIX_NAME_BUDGET = 40
+
+CHAR_NAME_BUDGET = 100
+CHAR_ADDRESS_BUDGET = 150
+
+APPROX_NAME_BUDGET = 40
+APPROX_ADDRESS_BUDGET = 40
+
+
+# ============================================================
+# TOKEN CONFIG
+# ============================================================
+
+MIN_TOKEN_LENGTH = 3
+
+MAX_TOKEN_FREQUENCY = 100_000
+
+MAX_RARE_SINGLE_FREQUENCY = 5_000
+
+MAX_QUERY_TOKENS = 8
+
+MAX_QUERY_TOKEN_PAIRS = 12
+
+NAME_PREFIX_LENGTH = 4
+
+APPROX_NAME_SCORE = 55
+APPROX_ADDRESS_SCORE = 50
+
+
+# ============================================================
+# CHARACTER N-GRAM CONFIG
+# ============================================================
+
+CHAR_GRAM_N = 3
+
+CHAR_GRAM_MIN_FREQ = 2
+CHAR_GRAM_MAX_FREQ = 500
+
+MAX_QUERY_CHAR_GRAMS = 12
+
+MIN_SHARED_CHAR_GRAMS = 2
+
+CHAR_CACHE_VERSION = 2
+
+
+# ============================================================
+# ROUTE PRIORITIES
+# ============================================================
+
+ROUTE_PRIORITY = {
+
+    "exact_name": 140,
+    "exact_core": 135,
+    "exact_translit": 130,
+    "exact_address": 135,
+
+    "name_intersection": 115,
+    "address_intersection": 120,
+
+    "char_name": 105,
+    "char_address": 105,
+
+    "address_number_token": 105,
+    "address_number": 95,
+
+    "number_name": 90,
+
+    "rare_address_token": 88,
+    "postal_name": 85,
+
+    "rare_name_token": 75,
+
+    "prefix_name": 55,
+
+    "approx_address": 45,
+    "approx_name": 40,
+}
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def clean_tokens(value):
+
+    if not value:
+        return []
+
+    return list({
+        token
+        for token in value.split()
+        if len(token) >= MIN_TOKEN_LENGTH
+    })
+
+
+def make_char_grams(value):
+
+    if not value:
+        return []
+
+    value = value.strip()
+
+    if len(value) < CHAR_GRAM_N:
+        return []
+
+    return list({
+        value[i:i + CHAR_GRAM_N]
+        for i in range(
+            len(value) - CHAR_GRAM_N + 1
+        )
+    })
+
+
+# ============================================================
+# EXACT INDEX
+# ============================================================
+
+def build_exact_index(df, column):
+
+    index = defaultdict(list)
+
+    for entity_id, value in zip(
+        df["entity_id"],
+        df[column],
+    ):
+
+        if value:
+            index[value].append(entity_id)
+
+    return index
+
+
+# ============================================================
+# TOKEN POSTING INDEX
+# ============================================================
+
+def build_token_index(
+    df,
+    column,
+):
+
+    print(
+        f"  Building token index for {column}..."
+    )
+
+    index = defaultdict(list)
+    frequencies = Counter()
+
+    # --------------------------------------------------------
+    # Frequency pass
+    # --------------------------------------------------------
+
+    for value in df[column]:
+
+        if not value:
+            continue
+
+        for token in set(value.split()):
+
+            if len(token) >= MIN_TOKEN_LENGTH:
+                frequencies[token] += 1
+
+    print(
+        f"  {column}: "
+        f"{len(frequencies):,} unique tokens"
+    )
+
+    # --------------------------------------------------------
+    # Posting pass
+    # --------------------------------------------------------
+
+    for entity_id, value in zip(
+        df["entity_id"],
+        df[column],
+    ):
+
+        if not value:
+            continue
+
+        for token in set(value.split()):
+
+            if len(token) < MIN_TOKEN_LENGTH:
+                continue
+
+            if frequencies[token] <= MAX_TOKEN_FREQUENCY:
+
+                index[token].append(
+                    entity_id
+                )
+
+    return index, frequencies
+
+
+# ============================================================
+# PREFIX INDEX
+# ============================================================
+
+def build_prefix_index(
+    df,
+    column,
+):
+
+    index = defaultdict(list)
+
+    for entity_id, value in zip(
+        df["entity_id"],
+        df[column],
+    ):
+
+        if not value:
+            continue
+
+        compact = value.replace(
+            " ",
+            "",
+        )
+
+        if len(compact) < NAME_PREFIX_LENGTH:
+            continue
+
+        prefix = compact[:NAME_PREFIX_LENGTH]
+
+        index[prefix].append(
+            entity_id
+        )
+
+    return index
+
+
+# ============================================================
+# CHARACTER N-GRAM INDEX
+# ============================================================
+
+def build_char_ngram_index(
+    df,
+    column,
+):
+
+    print(
+        f"  Character index: frequency pass "
+        f"for {column}..."
+    )
+
+    frequencies = Counter()
+
+    for value in df[column]:
+
+        if not value:
+            continue
+
+        frequencies.update(
+            set(
+                make_char_grams(value)
+            )
+        )
+
+    useful_grams = {
+        gram
+        for gram, freq in frequencies.items()
+        if (
+            CHAR_GRAM_MIN_FREQ
+            <= freq
+            <= CHAR_GRAM_MAX_FREQ
+        )
+    }
+
+    print(
+        f"  {column}: "
+        f"{len(frequencies):,} total grams -> "
+        f"{len(useful_grams):,} selective grams"
+    )
+
+    index = defaultdict(list)
+
+    for entity_id, value in zip(
+        df["entity_id"],
+        df[column],
+    ):
+
+        if not value:
+            continue
+
+        for gram in set(
+            make_char_grams(value)
+        ):
+
+            if gram in useful_grams:
+
+                index[gram].append(
+                    entity_id
+                )
+
+    return (
+        index,
+        {
+            gram: frequencies[gram]
+            for gram in useful_grams
+        },
+    )
+
+
+# ============================================================
+# CACHE
+# ============================================================
+
+def get_target_signature(
+    s2,
+    s3,
+):
+
+    parts = [
+        str(len(s2)),
+        str(len(s3)),
+        (
+            str(s2["entity_id"].iloc[0])
+            if len(s2)
+            else ""
+        ),
+        (
+            str(s2["entity_id"].iloc[-1])
+            if len(s2)
+            else ""
+        ),
+        (
+            str(s3["entity_id"].iloc[0])
+            if len(s3)
+            else ""
+        ),
+        (
+            str(s3["entity_id"].iloc[-1])
+            if len(s3)
+            else ""
+        ),
+    ]
+
+    raw = "|".join(parts)
+
+    return hashlib.md5(
+        raw.encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def char_cache_path(
+    split,
+    signature,
+):
+
+    return (
+        CACHE_DIR
+        /
+        (
+            f"{split}_char_index_"
+            f"{signature}_v{CHAR_CACHE_VERSION}.pkl"
+        )
+    )
+
+
+def load_or_build_char_indexes(
+    targets,
+    split,
+    signature,
+):
+
+    cache_path = char_cache_path(
+        split,
+        signature,
+    )
+
+    if cache_path.exists():
+
+        print(
+            "\nLoading cached character indexes..."
+        )
+
+        start = time.time()
+
+        with open(
+            cache_path,
+            "rb",
+        ) as f:
+
+            cache = pickle.load(f)
+
+        print(
+            f"Character indexes loaded in "
+            f"{time.time() - start:.1f}s"
+        )
+
+        return (
+            cache["name_index"],
+            cache["name_freq"],
+            cache["address_index"],
+            cache["address_freq"],
+        )
+
+    print(
+        "\nNo character-index cache found."
+    )
+
+    print(
+        "Building character indexes..."
+    )
+
+    start = time.time()
+
+    name_index, name_freq = (
+        build_char_ngram_index(
+            targets,
+            "name_norm",
+        )
+    )
+
+    address_index, address_freq = (
+        build_char_ngram_index(
+            targets,
+            "address_norm",
+        )
+    )
+
+    cache = {
+        "name_index": name_index,
+        "name_freq": name_freq,
+        "address_index": address_index,
+        "address_freq": address_freq,
+    }
+
+    with open(
+        cache_path,
+        "wb",
+    ) as f:
+
+        pickle.dump(
+            cache,
+            f,
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+
+    print(
+        f"Character indexes built + cached in "
+        f"{time.time() - start:.1f}s"
+    )
+
+    return (
+        name_index,
+        name_freq,
+        address_index,
+        address_freq,
+    )
+
+
+# ============================================================
+# CANDIDATE MAP
+# ============================================================
+
+def add_single_target(
+    candidate_map,
+    target_id,
+    channel,
+):
+
+    if not target_id:
+        return
+
+    channels = candidate_map.get(
+        target_id
+    )
+
+    if channels is None:
+
+        candidate_map[target_id] = {
+            channel
+        }
+
+    else:
+
+        channels.add(channel)
+
+
+def add_route_candidates(
+    candidate_map,
+    target_ids,
+    channel,
+    budget=None,
+):
+
+    if not target_ids:
+        return
+
+    if budget is not None:
+
+        target_ids = target_ids[:budget]
+
+    for target_id in target_ids:
+
+        add_single_target(
+            candidate_map,
+            target_id,
+            channel,
+        )
+
+
+# ============================================================
+# QUERY TOKEN SELECTION
+# ============================================================
+
+def select_query_tokens(
+    value,
+    frequencies,
+):
+
+    if not value:
+        return []
+
+    tokens = {
+        token
+        for token in value.split()
+        if len(token) >= MIN_TOKEN_LENGTH
+    }
+
+    ranked = sorted(
+        tokens,
+        key=lambda token: (
+            frequencies.get(
+                token,
+                10**18,
+            ),
+            -len(token),
+            token,
+        ),
+    )
+
+    return ranked[:MAX_QUERY_TOKENS]
+
+
+# ============================================================
+# SINGLE RARE TOKEN RETRIEVAL
+# ============================================================
+
+def retrieve_rare_token_candidates(
+    query_tokens,
+    token_index,
+    frequencies,
+    budget,
+):
+
+    candidate_scores = Counter()
+
+    for token in query_tokens:
+
+        freq = frequencies.get(
+            token,
+            10**18,
+        )
+
+        if freq > MAX_RARE_SINGLE_FREQUENCY:
+            continue
+
+        postings = token_index.get(
+            token,
+            [],
+        )
+
+        if (
+            not postings
+            or
+            len(postings) > MAX_RARE_POSTINGS
+        ):
+            continue
+
+        rarity = 1.0 / max(
+            freq,
+            1,
+        )
+
+        for target_id in postings:
+
+            candidate_scores[
+                target_id
+            ] += rarity
+
+    ranked = sorted(
+        candidate_scores.items(),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+
+    return [
+        target_id
+        for target_id, _
+        in ranked[:budget]
+    ]
+
+
+# ============================================================
+# INTERSECTION-FIRST TOKEN RETRIEVAL
+# ============================================================
+
+def retrieve_intersection_candidates(
+    query_value,
+    token_index,
+    frequencies,
+    target_token_sets,
+    budget,
+    posting_set_cache,
+):
+
+    if not query_value:
+        return []
+
+    query_tokens = select_query_tokens(
+        query_value,
+        frequencies,
+    )
+
+    if len(query_tokens) < 2:
+        return []
+
+    # --------------------------------------------------------
+    # Build token posting metadata.
+    # --------------------------------------------------------
+
+    usable = []
+
+    for token in query_tokens:
+
+        postings = token_index.get(
+            token,
+            [],
+        )
+
+        if not postings:
+            continue
+
+        if len(postings) <= MAX_INTERSECTION_POSTINGS:
+
+            usable.append(
+                (
+                    token,
+                    postings,
+                    frequencies.get(
+                        token,
+                        10**18,
+                    ),
+                )
+            )
+
+    if len(usable) < 2:
+        return []
+
+    usable.sort(
+        key=lambda x: len(x[1])
+    )
+
+    # --------------------------------------------------------
+    # Candidate scoring.
+    # --------------------------------------------------------
+
+    scores = Counter()
+    shared_tokens = Counter()
+
+    max_pairs = min(
+        MAX_QUERY_TOKEN_PAIRS,
+        len(usable) * (len(usable) - 1) // 2,
+    )
+
+    pair_count = 0
+
+    for i in range(
+        len(usable)
+    ):
+
+        token_a, postings_a, freq_a = usable[i]
+
+        # IMPORTANT OPTIMIZATION:
+        # Cache this set instead of rebuilding it for
+        # every pair involving token_a.
+        cached_set = posting_set_cache.get(token_a)
+
+        if cached_set is None:
+            cached_set = set(postings_a)
+            posting_set_cache[token_a] = cached_set
+
+        set_a = cached_set
+
+        for j in range(
+            i + 1,
+            len(usable),
+        ):
+
+            if pair_count >= max_pairs:
+                break
+
+            token_b, postings_b, freq_b = usable[j]
+
+            if len(postings_a) <= len(postings_b):
+
+                smaller = postings_a
+
+                cached_larger = posting_set_cache.get(
+                    token_b
+                )
+
+                if cached_larger is None:
+                    cached_larger = set(postings_b)
+                    posting_set_cache[token_b] = cached_larger
+
+                larger = cached_larger
+
+            else:
+
+                smaller = postings_b
+                larger = set_a
+
+            pair_count += 1
+
+            pair_weight = (
+                1.0
+                /
+                max(
+                    min(
+                        freq_a,
+                        freq_b,
+                    ),
+                    1,
+                )
+            )
+
+            for target_id in smaller:
+
+                if target_id not in larger:
+                    continue
+
+                shared_tokens[
+                    target_id
+                ] += 1
+
+                scores[
+                    target_id
+                ] += pair_weight
+
+    if not scores:
+        return []
+
+    # --------------------------------------------------------
+    # SECONDARY SCORING
+    #
+    # IMPORTANT OPTIMIZATION:
+    # target token sets are precomputed once globally.
+    # --------------------------------------------------------
+
+    query_set = set(query_tokens)
+
+    ranked = []
+
+    for target_id, retrieval_score in scores.items():
+
+        target_tokens = target_token_sets.get(
+            target_id
+        )
+
+        if not target_tokens:
+            continue
+
+        overlap = len(
+            query_set & target_tokens
+        )
+
+        if overlap <= 0:
+            continue
+
+        final_score = (
+            100.0 * overlap
+            +
+            10.0 * shared_tokens[target_id]
+            +
+            retrieval_score
+        )
+
+        ranked.append(
+            (
+                final_score,
+                overlap,
+                shared_tokens[target_id],
+                target_id,
+            )
+        )
+
+    ranked.sort(
+        reverse=True
+    )
+
+    return [
+        target_id
+        for _, _, _, target_id
+        in ranked[:budget]
+    ]
+
+
+# ============================================================
+# POSTAL + NAME
+# ============================================================
+
+def retrieve_postal_name(
+    postal,
+    name_tokens,
+    postal_index,
+    target_name_tokens,
+    budget,
+):
+
+    if not postal:
+        return []
+
+    ids = postal_index.get(
+        postal,
+        [],
+    )
+
+    if not ids:
+        return []
+
+    query_tokens = set(
+        name_tokens
+    )
+
+    scored = []
+
+    for target_id in ids:
+
+        target_tokens = target_name_tokens.get(
+            target_id
+        )
+
+        if not target_tokens:
+            continue
+
+        shared = (
+            query_tokens
+            &
+            target_tokens
+        )
+
+        if not shared:
+            continue
+
+        scored.append(
+            (
+                len(shared),
+                target_id,
+            )
+        )
+
+    scored.sort(
+        reverse=True
+    )
+
+    return [
+        target_id
+        for _, target_id
+        in scored[:budget]
+    ]
+
+
+# ============================================================
+# NUMBER RETRIEVAL
+# ============================================================
+
+def retrieve_number_candidates(
+    numbers,
+    number_index,
+    budget,
+):
+
+    if not numbers:
+        return []
+
+    counts = Counter()
+
+    for number in numbers:
+
+        postings = number_index.get(
+            number,
+            [],
+        )
+
+        if (
+            not postings
+            or
+            len(postings) > MAX_INTERSECTION_POSTINGS
+        ):
+            continue
+
+        for target_id in postings:
+
+            counts[target_id] += 1
+
+    ranked = sorted(
+        counts.items(),
+        key=lambda x: (
+            x[1],
+        ),
+        reverse=True,
+    )
+
+    return [
+        target_id
+        for target_id, _
+        in ranked[:budget]
+    ]
+
+
+# ============================================================
+# NUMBER + ADDRESS TOKEN
+# ============================================================
+
+def rank_number_address_candidates(
+    number_candidates,
+    address_tokens,
+    target_address_tokens,
+    budget,
+):
+
+    if not number_candidates:
+        return []
+
+    address_set = set(
+        address_tokens
+    )
+
+    scored = []
+
+    for target_id in number_candidates:
+
+        target_tokens = target_address_tokens.get(
+            target_id
+        )
+
+        if not target_tokens:
+            continue
+
+        shared = (
+            address_set
+            &
+            target_tokens
+        )
+
+        if not shared:
+            continue
+
+        scored.append(
+            (
+                len(shared),
+                target_id,
+            )
+        )
+
+    scored.sort(
+        reverse=True
+    )
+
+    return [
+        target_id
+        for _, target_id
+        in scored[:budget]
+    ]
+
+
+# ============================================================
+# CHARACTER RETRIEVAL
+# ============================================================
+
+def retrieve_char_candidates(
+    query,
+    char_index,
+    char_freq,
+    budget,
+):
+
+    if not query:
+        return []
+
+    query_grams = set(
+        make_char_grams(query)
+    )
+
+    if not query_grams:
+        return []
+
+    useful = [
+        gram
+        for gram in query_grams
+        if gram in char_index
+    ]
+
+    if not useful:
+        return []
+
+    useful.sort(
+        key=lambda gram:
+        char_freq.get(
+            gram,
+            10**18,
+        )
+    )
+
+    useful = useful[
+        :MAX_QUERY_CHAR_GRAMS
+    ]
+
+    counts = Counter()
+
+    for gram in useful:
+
+        postings = char_index.get(
+            gram,
+            [],
+        )
+
+        if not postings:
+            continue
+
+        for target_id in postings:
+
+            counts[target_id] += 1
+
+    if not counts:
+        return []
+
+    ranked = sorted(
+        counts.items(),
+        key=lambda x: (
+            x[1],
+        ),
+        reverse=True,
+    )
+
+    strong = [
+        target_id
+        for target_id, count
+        in ranked
+        if count >= MIN_SHARED_CHAR_GRAMS
+    ]
+
+    if strong:
+
+        return strong[:budget]
+
+    return [
+        target_id
+        for target_id, _
+        in ranked[:budget]
+    ]
+
+
+# ============================================================
+# BOUNDED FUZZY RETRIEVAL
+# ============================================================
+
+def bounded_fuzzy_retrieve(
+    query,
+    target_ids,
+    target_text,
+    budget,
+    score_cutoff,
+    candidate_map,
+    channel,
+):
+
+    if not query or not target_ids:
+        return
+
+    target_ids = list(
+        dict.fromkeys(
+            target_ids
+        )
+    )
+
+    if len(target_ids) > MAX_ROUTE_POOL:
+
+        target_ids = target_ids[
+            :MAX_ROUTE_POOL
+        ]
+
+    valid_pairs = []
+
+    for target_id in target_ids:
+
+        text = target_text.get(
+            target_id,
+            "",
+        )
+
+        if text:
+
+            valid_pairs.append(
+                (
+                    target_id,
+                    text,
+                )
+            )
+
+    if not valid_pairs:
+        return
+
+    choices = [
+        text
+        for _, text
+        in valid_pairs
+    ]
+
+    matches = process.extract(
+        query,
+        choices,
+        scorer=fuzz.WRatio,
+        score_cutoff=score_cutoff,
+        limit=budget,
+    )
+
+    for _, score, index in matches:
+
+        if (
+            0
+            <= index
+            <
+            len(valid_pairs)
+        ):
+
+            target_id = valid_pairs[
+                index
+            ][0]
+
+            add_single_target(
+                candidate_map,
+                target_id,
+                channel,
+            )
+
+
+# ============================================================
+# FINAL CANDIDATE CAP
+# ============================================================
+
+def cap_candidate_map(
+    candidate_map,
+    max_candidates=MAX_CANDIDATES_PER_ENTITY,
+):
+
+    if len(candidate_map) <= max_candidates:
+        return candidate_map
+
+    def candidate_rank(item):
+
+        target_id, channels = item
+
+        route_scores = sorted(
+            [
+                ROUTE_PRIORITY.get(
+                    channel,
+                    0,
+                )
+                for channel in channels
+            ],
+            reverse=True,
+        )
+
+        strongest = (
+            route_scores[0]
+            if route_scores
+            else 0
+        )
+
+        second = (
+            route_scores[1]
+            if len(route_scores) > 1
+            else 0
+        )
+
+        evidence_score = (
+            strongest
+            +
+            0.35 * second
+            +
+            0.20 * sum(
+                route_scores[2:]
+            )
+        )
+
+        return (
+            evidence_score,
+            len(channels),
+            strongest,
+        )
+
+    ranked = sorted(
+        candidate_map.items(),
+        key=candidate_rank,
+        reverse=True,
+    )
+
+    return dict(
+        ranked[
+            :max_candidates
+        ]
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def generate_candidates(
+    split,
+):
+
+    print(
+        f"\n{'=' * 70}"
+    )
+
+    print(
+        f"TRIAL 5 — INTERSECTION-FIRST HIGH-RECALL BLOCKER: "
+        f"{split.upper()}"
+    )
+
+    print(
+        f"{'=' * 70}"
+    )
+
+    # ========================================================
+    # LOAD DATA
+    # ========================================================
+
+    print(
+        "\nLoading processed data..."
+    )
+
+    s1 = pd.read_csv(
+        PROCESSED_DIR
+        /
+        f"{split}_S1_processed.tsv",
+        sep="\t",
+        dtype=str,
+        keep_default_na=False,
+    )
+
+    s2 = pd.read_csv(
+        PROCESSED_DIR
+        /
+        f"{split}_S2_processed.tsv",
+        sep="\t",
+        dtype=str,
+        keep_default_na=False,
+    )
+
+    s3 = pd.read_csv(
+        PROCESSED_DIR
+        /
+        f"{split}_S3_processed.tsv",
+        sep="\t",
+        dtype=str,
+        keep_default_na=False,
+    )
+
+    print(
+        f"\nUsing FULL S1 test dataset: "
+        f"{len(s1):,}"
+    )
+
+    print(
+        f"S1 rows: {len(s1):,}"
+    )
+
+    print(
+        f"S2 rows: {len(s2):,}"
+    )
+
+    print(
+        f"S3 rows: {len(s3):,}"
+    )
+
+    # ========================================================
+    # TARGETS
+    # ========================================================
+
+    s2 = s2.copy()
+    s3 = s3.copy()
+
+    s2["_source"] = "S2"
+    s3["_source"] = "S3"
+
+    targets = pd.concat(
+        [
+            s2,
+            s3,
+        ],
+        ignore_index=True,
+    )
+
+    target_signature = (
+        get_target_signature(
+            s2,
+            s3,
+        )
+    )
+
+    print(
+        f"\nTarget signature: "
+        f"{target_signature}"
+    )
+
+    # ========================================================
+    # EXACT INDEXES
+    # ========================================================
+
+    print(
+        "\nBuilding exact indexes..."
+    )
+
+    name_index = build_exact_index(
+        targets,
+        "name_norm",
+    )
+
+    core_index = build_exact_index(
+        targets,
+        "name_core",
+    )
+
+    translit_index = build_exact_index(
+        targets,
+        "name_translit",
+    )
+
+    address_index = build_exact_index(
+        targets,
+        "address_norm",
+    )
+
+    # ========================================================
+    # POSTAL INDEX
+    # ========================================================
+
+    print(
+        "Building postal index..."
+    )
+
+    postal_index = defaultdict(list)
+
+    for entity_id, postal in zip(
+        targets["entity_id"],
+        targets["postal_code"],
+    ):
+
+        if postal:
+
+            postal_index[
+                postal
+            ].append(
+                entity_id
+            )
+
+    # ========================================================
+    # TOKEN INDEXES
+    # ========================================================
+
+    print(
+        "\nBuilding NAME token index..."
+    )
+
+    name_token_index, name_token_freq = (
+        build_token_index(
+            targets,
+            "name_norm",
+        )
+    )
+
+    print(
+        "\nBuilding ADDRESS token index..."
+    )
+
+    address_token_index, address_token_freq = (
+        build_token_index(
+            targets,
+            "address_norm",
+        )
+    )
+
+    # ========================================================
+    # PREFIX
+    # ========================================================
+
+    print(
+        "\nBuilding prefix index..."
+    )
+
+    prefix_index = build_prefix_index(
+        targets,
+        "name_norm",
+    )
+
+    # ========================================================
+    # ADDRESS NUMBER INDEX
+    # ========================================================
+
+    print(
+        "Building address-number index..."
+    )
+
+    number_index = defaultdict(list)
+
+    for entity_id, value in zip(
+        targets["entity_id"],
+        targets["address_numbers"],
+    ):
+
+        if not value:
+            continue
+
+        for number in set(
+            value.split()
+        ):
+
+            if number:
+
+                number_index[
+                    number
+                ].append(
+                    entity_id
+                )
+
+    # ========================================================
+    # TEXT MAPS
+    # ========================================================
+
+    print(
+        "Preparing target text maps..."
+    )
+
+    target_name_text = dict(
+        zip(
+            targets["entity_id"],
+            targets["name_norm"],
+        )
+    )
+
+    target_address_text = dict(
+        zip(
+            targets["entity_id"],
+            targets["address_norm"],
+        )
+    )
+
+    # ========================================================
+    # PRECOMPUTED TARGET TOKEN SETS
+    #
+    # SAFE OPTIMIZATION:
+    #
+    # Previously, the same target strings were repeatedly
+    # split + converted into sets during every S1 row.
+    #
+    # This does NOT change retrieval semantics.
+    # ========================================================
+
+    print(
+        "Preparing cached target token sets..."
+    )
+
+    target_name_tokens = {}
+
+    target_address_tokens = {}
+
+    for entity_id, name, address in zip(
+        targets["entity_id"],
+        targets["name_norm"],
+        targets["address_norm"],
+    ):
+
+        if name:
+            target_name_tokens[
+                entity_id
+            ] = frozenset(
+                name.split()
+            )
+
+        if address:
+            target_address_tokens[
+                entity_id
+            ] = frozenset(
+                address.split()
+            )
+
+    print(
+        f"Cached target name token sets: "
+        f"{len(target_name_tokens):,}"
+    )
+
+    print(
+        f"Cached target address token sets: "
+        f"{len(target_address_tokens):,}"
+    )
+
+    # ========================================================
+    # POSTING-SET CACHE
+    #
+    # Intersection retrieval repeatedly needed:
+    #
+    #     set(postings)
+    #
+    # for the same token.
+    #
+    # Cache those sets once.
+    # ========================================================
+
+    name_posting_set_cache = {}
+    address_posting_set_cache = {}
+
+    # ========================================================
+    # CHARACTER INDEX
+    # ========================================================
+
+    (
+        char_name_index,
+        char_name_freq,
+        char_address_index,
+        char_address_freq,
+    ) = load_or_build_char_indexes(
+        targets,
+        split,
+        target_signature,
+    )
+
+    print(
+        "\nALL INDEXES READY."
+    )
+
+    # ========================================================
+    # OUTPUT
+    # ========================================================
+
+    output = (
+        CANDIDATE_DIR
+        /
+        f"{split}_candidate_pairs.tsv"
+    )
+
+    if output.exists():
+        output.unlink()
+
+    first_batch = True
+
+    total_candidates = 0
+
+    # Slightly larger output batch.
+    # This changes only I/O frequency, not retrieval.
+    BATCH_SIZE = 10_000
+
+    output_rows = []
+
+    print(
+        "\nGenerating candidates...\n"
+    )
+
+    # ========================================================
+    # S1 LOOP
+    # ========================================================
+
+    for i, row in enumerate(
+        s1.itertuples(
+            index=False
+        ),
+        start=1,
+    ):
+
+        s1_id = row.entity_id
+
+        candidate_map = {}
+
+        # ----------------------------------------------------
+        # QUERY PREPROCESSING
+        # ----------------------------------------------------
+
+        name_tokens = clean_tokens(
+            row.name_norm
+        )
+
+        address_tokens = clean_tokens(
+            row.address_norm
+        )
+
+        name_query_tokens = (
+            select_query_tokens(
+                row.name_norm,
+                name_token_freq,
+            )
+        )
+
+        address_query_tokens = (
+            select_query_tokens(
+                row.address_norm,
+                address_token_freq,
+            )
+        )
+
+        # ====================================================
+        # 1. EXACT NAME
+        # ====================================================
+
+        ids = name_index.get(
+            row.name_norm,
+            [],
+        )
+
+        if (
+            0
+            <
+            len(ids)
+            <=
+            MAX_RARE_POSTINGS
+        ):
+
+            add_route_candidates(
+                candidate_map,
+                ids,
+                "exact_name",
+                EXACT_NAME_BUDGET,
+            )
+
+        # ====================================================
+        # 2. EXACT CORE
+        # ====================================================
+
+        ids = core_index.get(
+            row.name_core,
+            [],
+        )
+
+        if (
+            0
+            <
+            len(ids)
+            <=
+            MAX_RARE_POSTINGS
+        ):
+
+            add_route_candidates(
+                candidate_map,
+                ids,
+                "exact_core",
+                CORE_NAME_BUDGET,
+            )
+
+        # ====================================================
+        # 3. EXACT TRANSLITERATED NAME
+        # ====================================================
+
+        ids = translit_index.get(
+            row.name_translit,
+            [],
+        )
+
+        if (
+            0
+            <
+            len(ids)
+            <=
+            MAX_RARE_POSTINGS
+        ):
+
+            add_route_candidates(
+                candidate_map,
+                ids,
+                "exact_translit",
+                TRANSLIT_BUDGET,
+            )
+
+        # ====================================================
+        # 4. EXACT ADDRESS
+        # ====================================================
+
+        ids = address_index.get(
+            row.address_norm,
+            [],
+        )
+
+        if (
+            0
+            <
+            len(ids)
+            <=
+            MAX_RARE_POSTINGS
+        ):
+
+            add_route_candidates(
+                candidate_map,
+                ids,
+                "exact_address",
+                EXACT_ADDRESS_BUDGET,
+            )
+
+        # ====================================================
+        # 5. RARE NAME TOKEN
+        # ====================================================
+
+        rare_name_ids = (
+            retrieve_rare_token_candidates(
+                name_query_tokens,
+                name_token_index,
+                name_token_freq,
+                RARE_NAME_BUDGET,
+            )
+        )
+
+        add_route_candidates(
+            candidate_map,
+            rare_name_ids,
+            "rare_name_token",
+            RARE_NAME_BUDGET,
+        )
+
+        # ====================================================
+        # 6. NAME TOKEN INTERSECTION
+        # ====================================================
+
+        name_intersection_ids = (
+            retrieve_intersection_candidates(
+                row.name_norm,
+                name_token_index,
+                name_token_freq,
+                target_name_tokens,
+                NAME_INTERSECTION_BUDGET,
+                name_posting_set_cache,
+            )
+        )
+
+        add_route_candidates(
+            candidate_map,
+            name_intersection_ids,
+            "name_intersection",
+            NAME_INTERSECTION_BUDGET,
+        )
+
+        # ====================================================
+        # 7. POSTAL + NAME
+        # ====================================================
+
+        postal_name_ids = (
+            retrieve_postal_name(
+                row.postal_code,
+                name_tokens,
+                postal_index,
+                target_name_tokens,
+                POSTAL_NAME_BUDGET,
+            )
+        )
+
+        add_route_candidates(
+            candidate_map,
+            postal_name_ids,
+            "postal_name",
+            POSTAL_NAME_BUDGET,
+        )
+
+        # ====================================================
+        # 8. NUMBER + NAME
+        # ====================================================
+
+        numbers = [
+            number
+            for number
+            in row.address_numbers.split()
+            if number
+        ]
+
+        # Compute this ONCE.
+        # Previously route 12 computed it AGAIN.
+        number_ids = (
+            retrieve_number_candidates(
+                numbers,
+                number_index,
+                MAX_ROUTE_POOL,
+            )
+        )
+
+        number_name_ids = []
+
+        name_set = set(
+            name_tokens
+        )
+
+        for target_id in number_ids:
+
+            target_tokens = target_name_tokens.get(
+                target_id
+            )
+
+            if not target_tokens:
+                continue
+
+            if name_set & target_tokens:
+
+                number_name_ids.append(
+                    target_id
+                )
+
+        add_route_candidates(
+            candidate_map,
+            number_name_ids,
+            "number_name",
+            NUMBER_NAME_BUDGET,
+        )
+
+        # ====================================================
+        # 9. RARE ADDRESS TOKEN
+        # ====================================================
+
+        rare_address_ids = (
+            retrieve_rare_token_candidates(
+                address_query_tokens,
+                address_token_index,
+                address_token_freq,
+                RARE_ADDRESS_BUDGET,
+            )
+        )
+
+        add_route_candidates(
+            candidate_map,
+            rare_address_ids,
+            "rare_address_token",
+            RARE_ADDRESS_BUDGET,
+        )
+
+        # ====================================================
+        # 10. ADDRESS TOKEN INTERSECTION
+        # ====================================================
+
+        address_intersection_ids = (
+            retrieve_intersection_candidates(
+                row.address_norm,
+                address_token_index,
+                address_token_freq,
+                target_address_tokens,
+                ADDRESS_INTERSECTION_BUDGET,
+                address_posting_set_cache,
+            )
+        )
+
+        add_route_candidates(
+            candidate_map,
+            address_intersection_ids,
+            "address_intersection",
+            ADDRESS_INTERSECTION_BUDGET,
+        )
+
+        # ====================================================
+        # 11. ADDRESS NUMBER
+        # ====================================================
+
+        # IMPORTANT:
+        # Reuses the EXACT SAME number_ids already computed
+        # above. This is equivalent to the old code.
+        address_number_ids = number_ids
+
+        address_set = set(
+            address_tokens
+        )
+
+        scored_number = []
+
+        for target_id in address_number_ids:
+
+            target_tokens = target_address_tokens.get(
+                target_id
+            )
+
+            if not target_tokens:
+                continue
+
+            shared = (
+                address_set
+                &
+                target_tokens
+            )
+
+            if shared:
+
+                scored_number.append(
+                    (
+                        len(shared),
+                        target_id,
+                    )
+                )
+
+        scored_number.sort(
+            reverse=True
+        )
+
+        ranked_number_ids = [
+            target_id
+            for _, target_id
+            in scored_number[
+                :ADDRESS_NUMBER_BUDGET
+            ]
+        ]
+
+        add_route_candidates(
+            candidate_map,
+            ranked_number_ids,
+            "address_number",
+            ADDRESS_NUMBER_BUDGET,
+        )
+
+        # ====================================================
+        # 12. NUMBER + ADDRESS TOKEN
+        # ====================================================
+
+        # IMPORTANT:
+        # Old implementation called retrieve_number_candidates()
+        # AGAIN with exactly the same arguments.
+        #
+        # We reuse number_ids instead.
+        #
+        # Candidate ordering is identical.
+        number_address_ids = (
+            rank_number_address_candidates(
+                number_ids,
+                address_tokens,
+                target_address_tokens,
+                ADDRESS_NUMBER_TOKEN_BUDGET,
+            )
+        )
+
+        add_route_candidates(
+            candidate_map,
+            number_address_ids,
+            "address_number_token",
+            ADDRESS_NUMBER_TOKEN_BUDGET,
+        )
+
+        # ====================================================
+        # 13. NAME PREFIX
+        # ====================================================
+
+        compact_name = (
+            row.name_norm.replace(
+                " ",
+                "",
+            )
+        )
+
+        if (
+            len(compact_name)
+            >=
+            NAME_PREFIX_LENGTH
+        ):
+
+            prefix = compact_name[
+                :NAME_PREFIX_LENGTH
+            ]
+
+            prefix_ids = prefix_index.get(
+                prefix,
+                [],
+            )
+
+            if (
+                0
+                <
+                len(prefix_ids)
+                <=
+                800
+            ):
+
+                add_route_candidates(
+                    candidate_map,
+                    prefix_ids,
+                    "prefix_name",
+                    PREFIX_NAME_BUDGET,
+                )
+
+        # ====================================================
+        # 14. CHARACTER NAME
+        # ====================================================
+
+        char_name_ids = (
+            retrieve_char_candidates(
+                row.name_norm,
+                char_name_index,
+                char_name_freq,
+                CHAR_NAME_BUDGET,
+            )
+        )
+
+        add_route_candidates(
+            candidate_map,
+            char_name_ids,
+            "char_name",
+            CHAR_NAME_BUDGET,
+        )
+
+        # ====================================================
+        # 15. CHARACTER ADDRESS
+        # ====================================================
+
+        char_address_ids = (
+            retrieve_char_candidates(
+                row.address_norm,
+                char_address_index,
+                char_address_freq,
+                CHAR_ADDRESS_BUDGET,
+            )
+        )
+
+        add_route_candidates(
+            candidate_map,
+            char_address_ids,
+            "char_address",
+            CHAR_ADDRESS_BUDGET,
+        )
+
+        # ====================================================
+        # 16. FUZZY NAME
+        # ====================================================
+
+        approximate_name_pool = list(
+            dict.fromkeys(
+                name_intersection_ids
+                +
+                rare_name_ids
+                +
+                char_name_ids
+            )
+        )
+
+        bounded_fuzzy_retrieve(
+            query=row.name_norm,
+            target_ids=approximate_name_pool,
+            target_text=target_name_text,
+            budget=APPROX_NAME_BUDGET,
+            score_cutoff=APPROX_NAME_SCORE,
+            candidate_map=candidate_map,
+            channel="approx_name",
+        )
+
+        # ====================================================
+        # 17. FUZZY ADDRESS
+        # ====================================================
+
+        approximate_address_pool = list(
+            dict.fromkeys(
+                address_intersection_ids
+                +
+                rare_address_ids
+                +
+                number_address_ids
+                +
+                char_address_ids
+            )
+        )
+
+        bounded_fuzzy_retrieve(
+            query=row.address_norm,
+            target_ids=approximate_address_pool,
+            target_text=target_address_text,
+            budget=APPROX_ADDRESS_BUDGET,
+            score_cutoff=APPROX_ADDRESS_SCORE,
+            candidate_map=candidate_map,
+            channel="approx_address",
+        )
+
+        # ====================================================
+        # FINAL CAP
+        # ====================================================
+
+        candidate_map = cap_candidate_map(
+            candidate_map,
+            MAX_CANDIDATES_PER_ENTITY,
+        )
+
+        # ====================================================
+        # OUTPUT
+        # ====================================================
+
+        for target_id, channels in (
+            candidate_map.items()
+        ):
+
+            output_rows.append(
+                {
+                    "s1_entity_id": s1_id,
+                    "candidate_entity_id": target_id,
+                    "retrieval_channels":
+                        ",".join(
+                            sorted(channels)
+                        ),
+                }
+            )
+
+        # ====================================================
+        # FLUSH
+        # ====================================================
+
+        if (
+            i % BATCH_SIZE == 0
+            or
+            i == len(s1)
+        ):
+
+            if output_rows:
+
+                result = pd.DataFrame(
+                    output_rows,
+                    columns=[
+                        "s1_entity_id",
+                        "candidate_entity_id",
+                        "retrieval_channels",
+                    ],
+                )
+
+                result.to_csv(
+                    output,
+                    sep="\t",
+                    index=False,
+                    mode=(
+                        "w"
+                        if first_batch
+                        else "a"
+                    ),
+                    header=first_batch,
+                )
+
+                first_batch = False
+
+                batch_candidates = len(
+                    result
+                )
+
+                total_candidates += (
+                    batch_candidates
+                )
+
+                output_rows.clear()
+
+            else:
+
+                batch_candidates = 0
+
+            print(
+                f"Processed "
+                f"{i:,}/{len(s1):,} | "
+                f"Batch candidates: "
+                f"{batch_candidates:,} | "
+                f"Total candidates: "
+                f"{total_candidates:,}"
+            )
+
+    # ========================================================
+    # DONE
+    # ========================================================
+
+    print(
+        "\n"
+        +
+        "=" * 70
+    )
+
+    print(
+        "DONE"
+    )
+
+    print(
+        "=" * 70
+    )
+
+    print(
+        f"Candidate pairs: "
+        f"{total_candidates:,}"
+    )
+
+    if len(s1) > 0:
+
+        print(
+            f"Mean candidates/entity: "
+            f"{total_candidates / len(s1):.2f}"
+        )
+
+    print(
+        f"Saved: {output}"
+    )
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--split",
+        choices=[
+            "train",
+            "test",
+        ],
+        required=True,
+    )
+
+    args = parser.parse_args()
+
+    generate_candidates(
+        args.split
+    )

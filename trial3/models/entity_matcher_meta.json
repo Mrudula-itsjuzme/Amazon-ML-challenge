@@ -1,0 +1,15 @@
+{
+  "threshold": 0.9699999999999995,
+  "feature_count": 76,
+  "train_size": 5500,
+  "validation_size": 2000,
+  "test_size": 2500,
+  "random_seed": 136,
+  "negative_positive_ratio": 8,
+  "processed_name_column": "name_norm",
+  "processed_core_name_column": "name_core",
+  "processed_translit_column": "name_translit",
+  "processed_address_column": "address_norm",
+  "processed_postal_column": "postal_code",
+  "processed_country_column": "country_norm"
+}
