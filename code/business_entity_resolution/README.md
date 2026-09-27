@@ -1,5 +1,59 @@
 # Business entity resolution
 
+## Predeclared blend submission inference
+
+`08_frozen_blend_inference.py` reproduces the predeclared 50/50 IDF plus
+numeric-context control that observed 0.9516 macro F0.5 on one untouched
+500-S1 training confirmation cohort. It uses the frozen 800-S1 development
+training groups, K100 candidates, and the development-selected threshold 0.55.
+Choosing this control for submission after seeing that confirmation is a
+deployment choice; 0.9516 is not a new prospective test score or a promise
+of leaderboard performance.
+
+The inference command requires `test_s1.parquet`, `test_target.parquet`, and
+`test_pairs.parquet` from the complete test target pool, together with a
+`test_retrieval_run.json` proving label-free retrieval over every S2/S3 target.
+It writes both official TSV schemas and refuses a partial S1 population by
+default. For a small smoke test only, pass `--allow-partial`; those files must
+not be uploaded. The current retrieval implementation has only been validated
+on bounded S1 cohorts and has not completed full 1.73M-S1 test inference on
+this host. Therefore no submit-ready TSV is claimed until that run and the
+official validator pass.
+
+A label-free five-S1 smoke scanned all **9,969,589** test S2/S3 targets,
+then ran the frozen seven-route augmentation at K100. Inference reproduced
+the frozen 800-S1 training feature table and wrote five rows, 500 candidate
+pairs, and nine predicted links. The files live under
+`research_runs/submission_blend_smoke_aug_output/` and are marked `partial`.
+All nine links belong to the candidate set. The complete test requires
+**1,732,544** S1 rows. `stream_generate` keeps a top-50 heap for each route
+and S1 in memory; its five unconditional routes alone can hold up to about
+433 million entries (and conditional transliteration can add 87 million).
+This Python-object design is beyond this 15 GiB host. No full-size run or
+organizer validation has passed.
+
+The bounded-memory exact shard runner and guarded merge are documented in
+[`SUBMISSION_RUNBOOK.md`](SUBMISSION_RUNBOOK.md). It prepared 174 disjoint S1
+shards, but no full shard was completed on this host. A 9,997-S1/10,000-target
+probe took 124.4 seconds and peaked at 4.18 GiB RSS, while a production shard
+must scan 9,969,589 targets. The 174 base shards exceed six hours serially
+even if the additional target scan cost is ignored. A disk-backed FTS route
+was rejected after its K100 development blocker recall measured only 0.3734.
+
+```bash
+python code/business_entity_resolution/08_frozen_blend_inference.py \
+  --input-dir PATH_TO_COMPLETE_TEST_K100_PARQUETS \
+  --output-dir output
+python code/business_entity_resolution/09_validate_submission_local.py \
+  --matching output/matching_results.tsv \
+  --candidate output/candidate_pairs.tsv \
+  --test-dir student_resource/dataset/test
+```
+
+The organizer's `student_resource/utils/validate_submission.py` is absent
+from this checkout. The local validator checks the published structural rules;
+use the organizer's script too if it becomes available.
+
 The latest [cross-branch audit and frozen blend confirmation](BRANCH_AUDIT_BLEND.md)
 compares `sup`, `main`, and the K100 learned matcher. The frozen selected
 blend scored **0.9496 macro F0.5** on a new untouched 500-S1 cohort. A
@@ -204,6 +258,14 @@ address token overlap, and number overlap. Importance is descriptive of that
 development fit, not an independent feature-selection result.
 
 ## Submission path and limits
+
+The frozen 0.9516-observed blend has an exact distributed test runner in
+`14_run_distributed_shard.py` and a sealed merge gate in
+`12_exact_sharded_submission.py`. All 1,732,544 test S1 IDs were checked
+against the 174 prepared disjoint shard files. Split-versus-unsplit retrieval
+and full-target inference fixtures passed exact parity. No full production
+shard has completed on this low-memory host, so no submission TSV or zip is
+available yet. See `SUBMISSION_RUNBOOK.md` for worker setup and gates.
 
 The earlier reduced-target pilot excluded most true links and its model scores must not be used as estimates of full-pool quality. The previous mru pipeline also seeded its candidate pool with ground-truth targets and ASCII-stripped native name text; these issues are avoided in this study.
 
