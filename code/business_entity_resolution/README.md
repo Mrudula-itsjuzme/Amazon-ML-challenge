@@ -1,5 +1,11 @@
 # Business entity resolution
 
+The latest [cross-branch audit and frozen blend confirmation](BRANCH_AUDIT_BLEND.md)
+compares `sup`, `main`, and the K100 learned matcher. The frozen selected
+blend scored **0.9496 macro F0.5** on a new untouched 500-S1 cohort. A
+predeclared 50/50 blend control scored **0.9516** on that same cohort; the
+confirmation result was not used to change the selected policy.
+
 The latest frozen full-pool IDF matcher audit, grouped ablations, blocker miss
 taxonomy, and one-time 500-S1 confirmation are in
 [`IDF_MATCHER_AUDIT.md`](IDF_MATCHER_AUDIT.md). The selected K100 LightGBM

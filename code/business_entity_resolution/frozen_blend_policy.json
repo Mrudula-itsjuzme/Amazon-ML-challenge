@@ -1,0 +1,33 @@
+{
+  "policy": "idf_numeric_half_idf_top_ge_05",
+  "development_dir": "research_runs/ber_fullpool_1000_offset300_aug1",
+  "new_development_dir": "research_runs/ber_fullpool_500_offset2300_aug1",
+  "new_development_report_sha256": "484760878deb075b3394c6175d7d0534f98048f8965c61cddded63d627c57930",
+  "confirmation_base_dir": "research_runs/ber_fullpool_500_offset2800",
+  "confirmation_dir": "research_runs/ber_fullpool_500_offset2800_aug1",
+  "confirmation_sample_offset": 2800,
+  "excluded_cohort_dirs": [
+    "research_runs/ber_fullpool_500_offset1300_aug1",
+    "research_runs/ber_fullpool_500_offset1800_aug1",
+    "research_runs/ber_fullpool_500_offset2300_aug1"
+  ],
+  "global_df_dir": "research_runs/global_target_token_df",
+  "data_dir": "student_resource/dataset",
+  "routes": ["native_char", "native_word", "address_char", "numeric", "rare_token", "translit_char", "core_char"],
+  "cap": 100,
+  "model_seed": 74000,
+  "idf_threshold": 0.7750000000000002,
+  "blend_threshold": 0.55,
+  "min_source_top_idf": 0.5,
+  "code_hashes": {
+    "01_pipeline.py": "2eb619fd945dc6b1dc3155a846e1a328a718400159d66fe7f59d81bfe169845e",
+    "02_match.py": "b8a1c19cfe6e7c5dedb6e31853f4fd99e864bd1fb80405b2196909a4c5004141",
+    "03_validate.py": "d5cf4027b69ea6ac89a440229076ec809ebb663982f5bb053b12cae8afef7c2c",
+    "06_numeric_context.py": "d773f61764bb9061342519057db71c6c1350f32865897f5bb0000a649c3e591a",
+    "07_blend_confirmation.py": "9f9825e5b9b8d27e9cc977dc31742fd26ca4e7faefd4ec748d909004f24dc9ee"
+  },
+  "df_hashes": {
+    "name_df.parquet": "91c62827a8de3bd3ff18d0c213e7f18d789f2ed397715b02fc8a958e4a70a3aa",
+    "address_df.parquet": "18dcb4f07cb28dae300f5fc4f8a6ce7318a38021a883fcf58d7790799a9281b4"
+  }
+}
