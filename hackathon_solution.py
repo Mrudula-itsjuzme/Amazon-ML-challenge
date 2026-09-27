@@ -41,7 +41,7 @@ def generate_candidates_fast(s1_texts, target_texts, max_df_fraction=0.01, top=2
     dfs = np.array(T.sum(axis=0)).flatten()
     N = T.shape[0]
     idfs = np.log((N + 1) / (dfs + 1))
-    idfs[dfs / N > max_df_fraction] = 0.0
+    idfs[dfs > 45000] = 0.0
     
     W = sp.diags(idfs)
     T_scaled = T @ W
@@ -130,7 +130,8 @@ if __name__ == '__main__':
     
     chunks = list(chunk_list(train_pairs_list, 10000))
     worker = partial(extract_features_worker, s1_dict=s1_train_dict, target_dict=target_train_dict, idf_dict=idf_dict, default_idf=default_idf)
-    with mp.Pool(12) as p:
+    num_cpus = os.cpu_count() or 12
+    with mp.Pool(num_cpus) as p:
         results = p.map(worker, chunks)
         
     train_feats = []
@@ -141,7 +142,7 @@ if __name__ == '__main__':
     feature_cols = [c for c in train_df.columns if c not in ('source1_entity_id', 'candidate_entity_id', 'label')]
     
     print(f"Training LightGBM on {len(train_df)} pairs ({train_df['label'].sum()} positives)...", flush=True)
-    clf = lgb.LGBMClassifier(n_estimators=200, learning_rate=0.05, num_leaves=31, random_state=42, n_jobs=12)
+    clf = lgb.LGBMClassifier(n_estimators=200, learning_rate=0.05, num_leaves=31, random_state=42, n_jobs=num_cpus)
     clf.fit(train_df[feature_cols], train_df['label'])
     
     del s1_train, s2_train, s3_train, target_train, s1_train_dict, target_train_dict, train_df, train_feats
@@ -172,7 +173,7 @@ if __name__ == '__main__':
     print(f"Extracting test features for {len(test_pairs_list)} pairs...", flush=True)
     chunks = list(chunk_list(test_pairs_list, 20000))
     worker = partial(extract_features_worker, s1_dict=s1_test_dict, target_dict=target_test_dict, idf_dict=idf_dict, default_idf=default_idf)
-    with mp.Pool(12) as p:
+    with mp.Pool(num_cpus) as p:
         results = p.map(worker, chunks)
         
     test_feats = []
