@@ -1,0 +1,10 @@
+{
+  "model": "predeclared_half_blend_control",
+  "threshold": 0.55,
+  "source1_count": 100,
+  "expected_source1_count": 1732544,
+  "candidate_pairs": 10000,
+  "matches": 319,
+  "target_pool_size": 9969589,
+  "partial": true
+}

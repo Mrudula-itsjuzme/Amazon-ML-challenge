@@ -1,9 +1,10 @@
 #!/bin/bash
-while true; do
-  if grep -q "Done!" /home/mrudula/.gemini/antigravity/brain/69998e71-d780-4451-9d0c-885985741a2c/.system_generated/tasks/task-546.log; then
-    echo "Task finished! Zipping..."
-    zip -r mrudula_submission.zip src output README.md Documentation_template.md
-    break
-  fi
-  sleep 2
+while [ ! -f output/matching_results.tsv ]; do
+  sleep 5
 done
+# Wait for the python script to finish writing (wait for process to end)
+while pgrep -f mega_fast_match.py > /dev/null; do
+  sleep 5
+done
+zip fast_submission_final.zip output/matching_results.tsv output/candidate_pairs.tsv
+echo "Done zipping!"

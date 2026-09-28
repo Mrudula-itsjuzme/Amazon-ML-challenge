@@ -1,0 +1,19 @@
+Augment pass 1: transliteration/address IDF and numeric DF
+  augment pass 1: 1,250,000 targets
+  augment pass 1: 2,500,000 targets
+  augment pass 1: 3,750,000 targets
+  augment pass 1: 4,987,273 targets
+  augment pass 1: 6,237,273 targets
+  augment pass 1: 7,487,273 targets
+  augment pass 1: 8,737,273 targets
+  augment pass 1: 9,969,589 targets
+Augment pass 2: full-target route ranking
+  augment pass 2: 1,250,000 targets scanned
+  augment pass 2: 2,500,000 targets scanned
+  augment pass 2: 3,750,000 targets scanned
+  augment pass 2: 4,987,273 targets scanned
+  augment pass 2: 6,237,273 targets scanned
+  augment pass 2: 7,487,273 targets scanned
+  augment pass 2: 8,737,273 targets scanned
+  augment pass 2: 9,987,273 targets scanned
+test: S1=100 target_pool=9969589 selected_target=24750 pairs=10000 mean=100.00 p95=100.0
